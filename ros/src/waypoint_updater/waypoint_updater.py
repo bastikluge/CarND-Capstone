@@ -32,20 +32,114 @@ class WaypointUpdater(object):
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
         # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
-
+        rospy.Subscriber('/traffic_waypoint', Waypoint, self.traffic_cb)
+        rospy.Subscriber('/obstacle_waypoint', Waypoint, self.obstacle_cb)
 
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
         # TODO: Add other member variables you need below
+        self.waypoints_ref = None
+        self.cur_wp_ref_idx = 0
+        self.waypoints_out = None
 
         rospy.spin()
 
+    # Callback to receive topic /current_pose
+    # msg   a Pose with reference coordinate frame and timestamp
+    #       msg.header Header
+    #       msg.pose   Pose
+    # Header:
+    #   'sequence ID: consecutively increasing ID'
+    #     uint32 seq
+    #   'Two-integer timestamp that is expressed as:
+    #   * stamp.sec: seconds (stamp_secs) since epoch (in Python this is called 'secs')
+    #   * stamp.nsec: nanoseconds since stamp_secs (in Python this is called 'nsecs')'
+    #     time stamp
+    #   'Frame this data is associated with (0: no frame, 1: global frame)'
+    #   string frame_id
+    # Pose:
+    #   'contains the position of a point in free space'
+    #     Point position
+    #       float64 x
+    #       float64 y
+    #       float64 z
+    #   'represents an orientation in free space in quaternion form'
+    #     Quaternion orientation
+    #       float64 x
+    #       float64 y
+    #       float64 z
+    #       float64 w
     def pose_cb(self, msg):
-        # TODO: Implement
+        # Log status of incoming data
+        rospy.loginfo('WaypointUpdater received pose data (%f, %f, %f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
+        # Calculate cur_wp_ref_idx (TODO: do this properly)
+        min_dist = 100000.
+        min_idx  = self.cur_wp_ref_idx
+        for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + len(self.waypoints_ref.waypoints)):
+            idx = len(self.waypoints_ref.waypoints) % i
+            cur_dist = self.dist_3d(msg.pose.point, self.waypoints_ref.waypoints[idx].pose.pose.position)
+            if cur_dist < min_dist:
+                min_dist = cur_dist
+                min_idx  = idx
+        self.cur_wp_ref_idx = min_idx
+        # Calculate self.waypoints_out
+        self.waypoints_out.header = self.waypoints_ref.header
+        self.waypoints_out.waypoints = []
+        for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + LOOKAHEAD_WPS):
+            idx = len(self.waypoints_ref.waypoints) % i
+            self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
+        # Publish the data
+        rospy.loginfo('WaypointUpdater sends waypoint data starting from index %i: (%f, %f, %f)...', self.cur_wp_ref_idx, self.waypoints_out.pose.position.x, self.waypoints_out.pose.position.y, self.waypoints_out.pose.position.z)
+        self.final_waypoints_pub.publish(self.waypoints_out)
         pass
 
+    # Callback to receive topic /base_waypoints
+    #       msg.header    Header
+    #       msg.waypoints Waypoint[]
+    # Header:
+    #   'sequence ID: consecutively increasing ID'
+    #     uint32 seq
+    #   'Two-integer timestamp that is expressed as:
+    #   * stamp.sec: seconds (stamp_secs) since epoch (in Python this is called 'secs')
+    #   * stamp.nsec: nanoseconds since stamp_secs (in Python this is called 'nsecs')'
+    #     time stamp
+    #   'Frame this data is associated with (0: no frame, 1: global frame)'
+    #   string frame_id
+    # Waypoint:
+    #   PoseStamped pose
+    #   TwistStamped twist
+    # PoseStamped:
+    #   Header header
+    #     ...
+    #   Pose pose
+    #     'contains the position of a point in free space'
+    #       Point position
+    #         float64 x
+    #         float64 y
+    #         float64 z
+    #     'represents an orientation in free space in quaternion form'
+    #       Quaternion orientation
+    #         float64 x
+    #         float64 y
+    #         float64 z
+    #         float64 w
+    # TwistStamped:
+    #   Header header
+    #     ...
+    #   Twist twist
+    #     'expresses velocity in free space linear parts'
+    #       Vector3  linear
+    #         float64 x
+    #         float64 y
+    #         float64 z
+    #     'expresses velocity in free space angular parts'
+    #       Vector3  angular
+    #         float64 x
+    #         float64 y
+    #         float64 z
     def waypoints_cb(self, waypoints):
-        # TODO: Implement
+        # Store waypoint data for later usage
+        self.waypoints = waypoints
         pass
 
     def traffic_cb(self, msg):
@@ -59,15 +153,16 @@ class WaypointUpdater(object):
     def get_waypoint_velocity(self, waypoint):
         return waypoint.twist.twist.linear.x
 
-    def set_waypoint_velocity(self, waypoints, waypoint, velocity):
-        waypoints[waypoint].twist.twist.linear.x = velocity
+    def set_waypoint_velocity(self, waypoints, wp_idx, velocity):
+        waypoints[wp_idx].twist.twist.linear.x = velocity
 
-    def distance(self, waypoints, wp1, wp2):
+    def dist_3d(self, a, b):
+        return math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2  + (a.z-b.z)**2)
+
+    def distance(self, waypoints, wp_idx_first, wp_idx_last):
         dist = 0
-        dl = lambda a, b: math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2  + (a.z-b.z)**2)
-        for i in range(wp1, wp2+1):
-            dist += dl(waypoints[wp1].pose.pose.position, waypoints[i].pose.pose.position)
-            wp1 = i
+        for i in range(wp_idx_first, wp_idx_last):
+            dist += dist_3d(waypoints[i].pose.pose.position, waypoints[i+1].pose.pose.position)
         return dist
 
 
