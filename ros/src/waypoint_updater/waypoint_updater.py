@@ -98,13 +98,12 @@ class WaypointUpdater(object):
             else:
                 self.cur_wp_ref_idx = min_idx
             # Calculate self.waypoints_out
-            self.waypoints_out.header = self.waypoints_ref.header
-            self.waypoints_out.waypoints = []
+            self.waypoints_out = Lane(self.waypoints_ref.header, [])
             for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + LOOKAHEAD_WPS):
-                idx = len(self.waypoints_ref.waypoints) % i
+                idx = i % len(self.waypoints_ref.waypoints)
                 self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
             # Publish the data
-            rospy.loginfo('WaypointUpdater sends waypoint data starting from index %i: (%f, %f, %f)...', self.cur_wp_ref_idx, self.waypoints_out.pose.position.x, self.waypoints_out.pose.position.y, self.waypoints_out.pose.position.z)
+            rospy.loginfo('WaypointUpdater sends waypoint data starting from index %i: (%f, %f, %f)...', self.cur_wp_ref_idx, self.waypoints_out.waypoints[0].pose.pose.position.x, self.waypoints_out.waypoints[0].pose.pose.position.y, self.waypoints_out.waypoints[0].pose.pose.position.z)
             self.final_waypoints_pub.publish(self.waypoints_out)
         pass
 
@@ -155,7 +154,7 @@ class WaypointUpdater(object):
     def waypoints_cb(self, waypoints):
         # Store waypoint data for later usage
         self.waypoints_ref = waypoints
-        rospy.loginfo('WaypointUpdater is initialized with %i reference waypoints', len(self.waypoints_ref))
+        rospy.loginfo('WaypointUpdater is initialized with %i reference waypoints', len(self.waypoints_ref.waypoints))
         pass
 
     def traffic_cb(self, msg):
