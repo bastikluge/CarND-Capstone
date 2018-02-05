@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
 import rospy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Quaternion
 from styx_msgs.msg import Lane, Waypoint
 
 import math
+import numpy as np
+from tf.transformations import euler_from_quaternion, quaternion_from_euler
 
 '''
 This node will publish waypoints from the car's current position to some `x` distance ahead.
@@ -70,27 +72,40 @@ class WaypointUpdater(object):
     #       float64 z
     #       float64 w
     def pose_cb(self, msg):
-        # Log status of incoming data
-        rospy.loginfo('WaypointUpdater received pose data (%f, %f, %f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
-        # Calculate cur_wp_ref_idx (TODO: do this properly)
-        min_dist = 100000.
-        min_idx  = self.cur_wp_ref_idx
-        for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + len(self.waypoints_ref.waypoints)):
-            idx = len(self.waypoints_ref.waypoints) % i
-            cur_dist = self.dist_3d(msg.pose.point, self.waypoints_ref.waypoints[idx].pose.pose.position)
-            if cur_dist < min_dist:
-                min_dist = cur_dist
-                min_idx  = idx
-        self.cur_wp_ref_idx = min_idx
-        # Calculate self.waypoints_out
-        self.waypoints_out.header = self.waypoints_ref.header
-        self.waypoints_out.waypoints = []
-        for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + LOOKAHEAD_WPS):
-            idx = len(self.waypoints_ref.waypoints) % i
-            self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
-        # Publish the data
-        rospy.loginfo('WaypointUpdater sends waypoint data starting from index %i: (%f, %f, %f)...', self.cur_wp_ref_idx, self.waypoints_out.pose.position.x, self.waypoints_out.pose.position.y, self.waypoints_out.pose.position.z)
-        self.final_waypoints_pub.publish(self.waypoints_out)
+		if self.waypoints_ref == None:
+			# Log warning of incoming data
+			rospy.logwarn('WaypointUpdater received pose data but reference waypoints are not initialized yet')
+		else:
+			# Log status of incoming data
+			rospy.loginfo('WaypointUpdater received pose data (%f, %f, %f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
+			# Calculate cur_wp_ref_idx
+			min_dist = 100000.
+			min_idx  = self.cur_wp_ref_idx
+			for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + len(self.waypoints_ref.waypoints)):
+				idx = i % len(self.waypoints_ref.waypoints)
+				cur_dist = self.dist_3d(msg.pose.position, self.waypoints_ref.waypoints[idx].pose.pose.position)
+				if cur_dist < min_dist:
+					min_dist = cur_dist
+					min_idx  = idx
+			dx = self.waypoints_ref.waypoints[min_idx].pose.pose.position.x - msg.pose.position.x
+			dy = self.waypoints_ref.waypoints[min_idx].pose.pose.position.y - msg.pose.position.y
+			heading = np.arctan2(dy, dx)
+			(roll, pitch, yaw) = self.get_roll_pitch_yaw(msg.pose.orientation)
+			angle = np.abs(yaw - heading)
+			angle = np.minimum(angle, 2.0 * np.pi - angle)
+			if angle > np.pi / 4.0:
+				self.cur_wp_ref_idx = (min_idx + 1) % len(self.waypoints_ref.waypoints)
+			else:
+				self.cur_wp_ref_idx = min_idx
+			# Calculate self.waypoints_out
+			self.waypoints_out.header = self.waypoints_ref.header
+			self.waypoints_out.waypoints = []
+			for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + LOOKAHEAD_WPS):
+				idx = len(self.waypoints_ref.waypoints) % i
+				self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
+			# Publish the data
+			rospy.loginfo('WaypointUpdater sends waypoint data starting from index %i: (%f, %f, %f)...', self.cur_wp_ref_idx, self.waypoints_out.pose.position.x, self.waypoints_out.pose.position.y, self.waypoints_out.pose.position.z)
+			self.final_waypoints_pub.publish(self.waypoints_out)
         pass
 
     # Callback to receive topic /base_waypoints
@@ -139,7 +154,8 @@ class WaypointUpdater(object):
     #         float64 z
     def waypoints_cb(self, waypoints):
         # Store waypoint data for later usage
-        self.waypoints = waypoints
+        self.waypoints_ref = waypoints
+		rospy.loginfo('WaypointUpdater is initialized with %i reference waypoints', len(self.waypoints_ref))
         pass
 
     def traffic_cb(self, msg):
@@ -165,6 +181,13 @@ class WaypointUpdater(object):
             dist += dist_3d(waypoints[i].pose.pose.position, waypoints[i+1].pose.pose.position)
         return dist
 
+	def get_roll_pitch_yaw(self, ros_quaternion):
+		orientation_list = [ros_quaternion.x, ros_quaternion.y, ros_quaternion.z, ros_quaternion.w]
+		return euler_from_quaternion (orientation_list) # returns (roll, pitch, yaw)
+		
+	def get_ros_quaternion(roll, pitch, yaw):
+		return Quaternion(*quaternion_from_euler(roll, pitch, yaw)) # returns Quaternion
+		
 
 if __name__ == '__main__':
     try:
