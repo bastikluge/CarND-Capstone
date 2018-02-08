@@ -37,7 +37,7 @@ class WaypointUpdater(object):
         rospy.Subscriber('/traffic_waypoint', Waypoint, self.traffic_cb)
         rospy.Subscriber('/obstacle_waypoint', Waypoint, self.obstacle_cb)
 
-        self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
+        self.final_waypoints_pub = rospy.Publisher('/final_waypoints', Lane, queue_size=1)
 
         # TODO: Add other member variables you need below
         self.waypoints_ref = None
