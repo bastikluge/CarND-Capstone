@@ -1,14 +1,30 @@
+from yaw_controller import YawController
+from pid import PID
+import math
+import numpy as np
 
 GAS_DENSITY = 2.858
 ONE_MPH = 0.44704
 
 
 class Controller(object):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, wheel_base, steer_ratio, max_lat_accel, max_steer_angle):
         # TODO: Implement
+        self.speed_controller = PID(0.22, 0.00009, 3.1, -5.0, 1.0)
+        self.yaw_controller   = YawController(wheel_base, steer_ratio, ONE_MPH, max_lat_accel, max_steer_angle)
         pass
 
-    def control(self, *args, **kwargs):
+    def control(self, enabled, current_lin_v, self.current_ang_v, proposed_lin_v, proposed_ang_v):
         # TODO: Change the arg, kwarg list to suit your needs
         # Return throttle, brake, steer
-        return 1., 0., 0.
+        if not enabled:
+            self.speed_controller.reset()
+        dv = self.speed_controller.step(numpy.linalg.norm(current_lin_v - proposed_lin_v), 1.0/50.0)
+        throttle = 0.0
+        brake    = 0.0
+        if dv < 0:
+            brake = -dv; # @todo
+        else:
+            throttle = dv; # @todo
+        steer = self.yaw_controller.get_steering(proposed_lin_v, proposed_ang_v, current_lin_v)
+        return throttle, brake, steer
