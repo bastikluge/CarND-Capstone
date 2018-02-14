@@ -54,10 +54,10 @@ class DBWNode(object):
         self.brake_pub = rospy.Publisher('/vehicle/brake_cmd',
                                          BrakeCmd, queue_size=1)
 
-        # TODO: Create `Controller` object
-        self.controller = Controller(wheel_base, steer_ratio, max_lat_accel, max_steer_angle)
+        # Create `Controller` object
+        self.controller = Controller(vehicle_mass, wheel_radius, wheel_base, steer_ratio, max_lat_accel, max_steer_angle)
 
-        # TODO: Subscribe to all the topics you need to
+        # Subscribe to all needed topics
         rospy.Subscriber('/current_velocity', TwistStamped, self.current_velocity_cb)
         rospy.Subscriber('/twist_cmd', TwistStamped, self.twist_cb)
         rospy.Subscriber('/vehicle/dbw_enabled', Bool, self.dbw_enabled_cb)
@@ -74,11 +74,11 @@ class DBWNode(object):
     def loop(self):
         rate = rospy.Rate(50) # 50Hz
         while not rospy.is_shutdown():
-            # TODO: Get predicted throttle, brake, and steering using `twist_controller`
-            # You should only publish the control commands if dbw is enabled
+            # Get predicted throttle, brake, and steering using `twist_controller`
+            # (only publish the control commands if dbw is enabled)
             throttle, brake, steer = self.controller.control(self.dbw_enabled, self.current_lin_v, self.current_ang_v, self.proposed_lin_v, self.proposed_ang_v)
             if self.dbw_enabled:
-                rospy.loginfo('DBWNode publishes throttle=%f, steer_angle=%f, brake=%f', throttle, brake, steer)
+                rospy.loginfo('DBWNode pub: throttle=%.2f, steer_angle=%.2f, brake=%.2f', throttle, brake, steer)
                 self.publish(throttle, brake, steer)
             rate.sleep()
 
@@ -116,7 +116,7 @@ class DBWNode(object):
     #         float64 y
     #         float64 z
     def current_velocity_cb(self, msg):
-        rospy.loginfo('DBWNode receives current velocities lin=(%f, %f, %f), ang=(%f, %f, %f)', msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z, msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z )
+        rospy.loginfo('DBWNode rec: curr. v_lin=%.2f, v_ang=%.2f', msg.twist.linear.x, msg.twist.angular.z )
         self.current_lin_v[0] = msg.twist.linear.x
         self.current_lin_v[1] = msg.twist.linear.y
         self.current_lin_v[2] = msg.twist.linear.z
@@ -141,7 +141,7 @@ class DBWNode(object):
     #         float64 y
     #         float64 z
     def twist_cb(self, msg):
-        rospy.loginfo('DBWNode receives proposed velocities lin=(%f, %f, %f), ang=(%f, %f, %f)', msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z, msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z )
+        rospy.loginfo('DBWNode rec: prop. v_lin=%.2f, v_ang=%.2f', msg.twist.linear.x, msg.twist.angular.z )
         self.proposed_lin_v[0] = msg.twist.linear.x
         self.proposed_lin_v[1] = msg.twist.linear.y
         self.proposed_lin_v[2] = msg.twist.linear.z

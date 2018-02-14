@@ -33,13 +33,13 @@ class WaypointUpdater(object):
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
-        # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
+        # Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
         rospy.Subscriber('/traffic_waypoint', Waypoint, self.traffic_cb)
         rospy.Subscriber('/obstacle_waypoint', Waypoint, self.obstacle_cb)
 
         self.final_waypoints_pub = rospy.Publisher('/final_waypoints', Lane, queue_size=1)
 
-        # TODO: Add other member variables you need below
+        # Add other member variables
         self.waypoints_ref = None
         self.cur_wp_ref_idx = 0
         self.waypoints_out = None
@@ -77,7 +77,7 @@ class WaypointUpdater(object):
             rospy.logwarn('WaypointUpdater received pose data but reference waypoints are not initialized yet')
         else:
             # Log status of incoming data
-            rospy.loginfo('WaypointUpdater received pose data (%f, %f, %f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
+            rospy.loginfo('WaypointUpdater rec: pose data (%.2f, %.2f, %.2f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
             # Calculate cur_wp_ref_idx
             min_dist = 100000.
             min_idx  = self.cur_wp_ref_idx
@@ -103,7 +103,7 @@ class WaypointUpdater(object):
                 idx = i % len(self.waypoints_ref.waypoints)
                 self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
             # Publish the data
-            rospy.loginfo('WaypointUpdater sends waypoint data starting from index %i: (%f, %f, %f)...', self.cur_wp_ref_idx, self.waypoints_out.waypoints[0].pose.pose.position.x, self.waypoints_out.waypoints[0].pose.pose.position.y, self.waypoints_out.waypoints[0].pose.pose.position.z)
+            rospy.loginfo('WaypointUpdater pub: from index %i: (%.2f, %.2f, %.2f)...', self.cur_wp_ref_idx, self.waypoints_out.waypoints[0].pose.pose.position.x, self.waypoints_out.waypoints[0].pose.pose.position.y, self.waypoints_out.waypoints[0].pose.pose.position.z)
             self.final_waypoints_pub.publish(self.waypoints_out)
         pass
 
