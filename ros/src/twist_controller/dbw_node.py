@@ -64,21 +64,21 @@ class DBWNode(object):
 
         # Some helper data
         self.dbw_enabled = True
-        self.current_lin_v  = np.array((0.0, 0.0, 0.0))
-        self.current_ang_v  = np.array((0.0, 0.0, 0.0))
-        self.proposed_lin_v = np.array((0.0, 0.0, 0.0))
-        self.proposed_ang_v = np.array((0.0, 0.0, 0.0))
+        self.current_lin_v  = 0.0
+        self.current_ang_v  = 0.0
+        self.proposed_lin_v = 0.0
+        self.proposed_ang_v = 0.0
         
         self.loop()
 
     def loop(self):
-        rate = rospy.Rate(50) # 50Hz
+        rate = rospy.Rate(50) # 50Hz (change to lower value for simulation - there seems to be some growing lag between controller and simulator)
         while not rospy.is_shutdown():
             # Get predicted throttle, brake, and steering using `twist_controller`
             # (only publish the control commands if dbw is enabled)
             throttle, brake, steer = self.controller.control(self.dbw_enabled, self.current_lin_v, self.current_ang_v, self.proposed_lin_v, self.proposed_ang_v)
             if self.dbw_enabled:
-                rospy.loginfo('DBWNode pub: throttle=%.2f, steer_angle=%.2f, brake=%.2f', throttle, brake, steer)
+                rospy.loginfo('DBWNode pub: throttle=%.2f, brake=%.2f, steer=%.2f', throttle, brake, steer)
                 self.publish(throttle, brake, steer)
             rate.sleep()
 
@@ -117,12 +117,8 @@ class DBWNode(object):
     #         float64 z
     def current_velocity_cb(self, msg):
         rospy.loginfo('DBWNode rec: curr. v_lin=%.2f, v_ang=%.2f', msg.twist.linear.x, msg.twist.angular.z )
-        self.current_lin_v[0] = msg.twist.linear.x
-        self.current_lin_v[1] = msg.twist.linear.y
-        self.current_lin_v[2] = msg.twist.linear.z
-        self.current_ang_v[0] = msg.twist.angular.x
-        self.current_ang_v[1] = msg.twist.angular.y
-        self.current_ang_v[2] = msg.twist.angular.z
+        self.current_lin_v = msg.twist.linear.x
+        self.current_ang_v = msg.twist.angular.z
         pass
     
     # Callback for twist messages published on /twist_cmd
@@ -142,12 +138,8 @@ class DBWNode(object):
     #         float64 z
     def twist_cb(self, msg):
         rospy.loginfo('DBWNode rec: prop. v_lin=%.2f, v_ang=%.2f', msg.twist.linear.x, msg.twist.angular.z )
-        self.proposed_lin_v[0] = msg.twist.linear.x
-        self.proposed_lin_v[1] = msg.twist.linear.y
-        self.proposed_lin_v[2] = msg.twist.linear.z
-        self.proposed_ang_v[0] = msg.twist.angular.x
-        self.proposed_ang_v[1] = msg.twist.angular.y
-        self.proposed_ang_v[2] = msg.twist.angular.z
+        self.proposed_lin_v = msg.twist.linear.x
+        self.proposed_ang_v = msg.twist.angular.z
         pass
 
     # Callback for messages signaling the drive-by-wire-enabled status
