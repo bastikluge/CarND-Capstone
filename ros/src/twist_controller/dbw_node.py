@@ -116,7 +116,7 @@ class DBWNode(object):
     #         float64 y
     #         float64 z
     def current_velocity_cb(self, msg):
-        rospy.loginfo('DBWNode receives proposed velocities lin=(%f, %f, %f), ang=(%f, %f, %f)', msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z, msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z )
+        rospy.loginfo('DBWNode receives current velocities lin=(%f, %f, %f), ang=(%f, %f, %f)', msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z, msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z )
         self.current_lin_v[0] = msg.twist.linear.x
         self.current_lin_v[1] = msg.twist.linear.y
         self.current_lin_v[2] = msg.twist.linear.z
