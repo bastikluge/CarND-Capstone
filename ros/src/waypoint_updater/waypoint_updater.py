@@ -79,14 +79,19 @@ class WaypointUpdater(object):
             # Log status of incoming data
             rospy.loginfo('WaypointUpdater rec: pose data (%.2f, %.2f, %.2f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
             # Calculate cur_wp_ref_idx
-            min_dist = 100000.
+            min_dist = 100000.0
             min_idx  = self.cur_wp_ref_idx
-            for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + len(self.waypoints_ref.waypoints)):
+            start_idx = self.cur_wp_ref_idx - 2
+            if (start_idx < 0):
+                start_idx = start_idx + len(self.waypoints_ref.waypoints)
+            for i in range(start_idx, start_idx + len(self.waypoints_ref.waypoints)):
                 idx = i % len(self.waypoints_ref.waypoints)
                 cur_dist = self.dist_3d(msg.pose.position, self.waypoints_ref.waypoints[idx].pose.pose.position)
                 if cur_dist < min_dist:
                     min_dist = cur_dist
                     min_idx  = idx
+                if (min_dist < 5 and cur_dist > 10 * min_dist):
+                    break
             dx = self.waypoints_ref.waypoints[min_idx].pose.pose.position.x - msg.pose.position.x
             dy = self.waypoints_ref.waypoints[min_idx].pose.pose.position.y - msg.pose.position.y
             heading = np.arctan2(dy, dx)
@@ -103,7 +108,8 @@ class WaypointUpdater(object):
                 idx = i % len(self.waypoints_ref.waypoints)
                 self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
             # Publish the data
-            rospy.loginfo('WaypointUpdater pub: from index %i: (%.2f, %.2f, %.2f)...', self.cur_wp_ref_idx, self.waypoints_out.waypoints[0].pose.pose.position.x, self.waypoints_out.waypoints[0].pose.pose.position.y, self.waypoints_out.waypoints[0].pose.pose.position.z)
+            waypoint_pos = self.waypoints_out.waypoints[0].pose.pose.position
+            rospy.loginfo('WaypointUpdater pub: from index %i: (%.2f, %.2f, %.2f)...', self.cur_wp_ref_idx, waypoint_pos.x, waypoint_pos.y, waypoint_pos.z)
             self.final_waypoints_pub.publish(self.waypoints_out)
         pass
 
@@ -182,7 +188,7 @@ class WaypointUpdater(object):
 
     def get_roll_pitch_yaw(self, ros_quaternion):
         orientation_list = [ros_quaternion.x, ros_quaternion.y, ros_quaternion.z, ros_quaternion.w]
-        return euler_from_quaternion (orientation_list) # returns (roll, pitch, yaw)
+        return euler_from_quaternion(orientation_list) # returns (roll, pitch, yaw)
         
     def get_ros_quaternion(roll, pitch, yaw):
         return Quaternion(*quaternion_from_euler(roll, pitch, yaw)) # returns Quaternion

@@ -10,6 +10,8 @@ from light_classification.tl_classifier import TLClassifier
 import tf
 import cv2
 import yaml
+from tf.transformations import euler_from_quaternion
+import numpy as np
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -19,6 +21,7 @@ class TLDetector(object):
 
         self.pose = None
         self.waypoints = None
+        self.cur_wp_idx = 0
         self.camera_image = None
         self.lights = []
 
@@ -51,12 +54,114 @@ class TLDetector(object):
 
         rospy.spin()
 
+    # Callback to receive topic /current_pose
+    # msg   a Pose with reference coordinate frame and timestamp
+    #       msg.header Header
+    #       msg.pose   Pose
+    # Header:
+    #   'sequence ID: consecutively increasing ID'
+    #     uint32 seq
+    #   'Two-integer timestamp that is expressed as:
+    #   * stamp.sec: seconds (stamp_secs) since epoch (in Python this is called 'secs')
+    #   * stamp.nsec: nanoseconds since stamp_secs (in Python this is called 'nsecs')'
+    #     time stamp
+    #   'Frame this data is associated with (0: no frame, 1: global frame)'
+    #   string frame_id
+    # Pose:
+    #   'contains the position of a point in free space'
+    #     Point position
+    #       float64 x
+    #       float64 y
+    #       float64 z
+    #   'represents an orientation in free space in quaternion form'
+    #     Quaternion orientation
+    #       float64 x
+    #       float64 y
+    #       float64 z
+    #       float64 w
     def pose_cb(self, msg):
+        # Store waypoint data for later usage
         self.pose = msg
+        rospy.loginfo('TLDetector rec: pose data (%.2f, %.2f, %.2f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
 
+    # Callback to receive topic /base_waypoints
+    #       msg.header    Header
+    #       msg.waypoints Waypoint[]
+    # Header:
+    #   'sequence ID: consecutively increasing ID'
+    #     uint32 seq
+    #   'Two-integer timestamp that is expressed as:
+    #   * stamp.sec: seconds (stamp_secs) since epoch (in Python this is called 'secs')
+    #   * stamp.nsec: nanoseconds since stamp_secs (in Python this is called 'nsecs')'
+    #     time stamp
+    #   'Frame this data is associated with (0: no frame, 1: global frame)'
+    #   string frame_id
+    # Waypoint:
+    #   PoseStamped pose
+    #   TwistStamped twist
+    # PoseStamped:
+    #   Header header
+    #     ...
+    #   Pose pose
+    #     'contains the position of a point in free space'
+    #       Point position
+    #         float64 x
+    #         float64 y
+    #         float64 z
+    #     'represents an orientation in free space in quaternion form'
+    #       Quaternion orientation
+    #         float64 x
+    #         float64 y
+    #         float64 z
+    #         float64 w
+    # TwistStamped:
+    #   Header header
+    #     ...
+    #   Twist twist
+    #     'expresses velocity in free space linear parts'
+    #       Vector3  linear
+    #         float64 x
+    #         float64 y
+    #         float64 z
+    #     'expresses velocity in free space angular parts'
+    #       Vector3  angular
+    #         float64 x
+    #         float64 y
+    #         float64 z
     def waypoints_cb(self, waypoints):
+        # Store waypoint data for later usage
         self.waypoints = waypoints
+        rospy.loginfo('TLDetector is initialized with %i reference waypoints', len(self.waypoints.waypoints))
+        pass
 
+    # Callback to receive the (x, y, z) positions of all traffic lights
+    # TrafficLightArray
+    #       msg.header  Header
+    #       msg.lights  TrafficLight[]
+    # TrafficLight:
+    #   Header header
+    #   geometry_msgs/PoseStamped pose
+    #   uint8 state
+    #       ...where state takes one of the values:
+    #       uint8 UNKNOWN=4
+    #       uint8 GREEN=2
+    #       uint8 YELLOW=1
+    #       uint8 RED=0
+    # PoseStamped:
+    #   Header header
+    #     ...
+    #   Pose pose
+    #     'contains the position of a point in free space'
+    #       Point position
+    #         float64 x
+    #         float64 y
+    #         float64 z
+    #     'represents an orientation in free space in quaternion form'
+    #       Quaternion orientation
+    #         float64 x
+    #         float64 y
+    #         float64 z
+    #         float64 w
     def traffic_cb(self, msg):
         self.lights = msg.lights
 
@@ -90,18 +195,71 @@ class TLDetector(object):
             self.upcoming_red_light_pub.publish(Int32(self.last_wp))
         self.state_count += 1
 
-    def get_closest_waypoint(self, pose):
-        """Identifies the closest path waypoint to the given position
+    def get_closest_waypoint(self):
+        """Identifies the closest path waypoint to the current car position
             https://en.wikipedia.org/wiki/Closest_pair_of_points_problem
-        Args:
-            pose (Pose): position to match a waypoint to
 
         Returns:
             int: index of the closest waypoint in self.waypoints
 
         """
-        #TODO implement
-        return 0
+        waypoint_index = None
+        if (self.pose and self.waypoints)
+            # Calculate cur_wp_idx
+            min_dist = 100000.
+            min_idx  = self.cur_wp_idx
+            start_idx = self.cur_wp_idx - 2
+            if (start_idx < 0):
+                start_idx = start_idx + len(self.waypoints.waypoints)
+            for i in range(start_idx, start_idx + len(self.waypoints.waypoints)):
+                idx = i % len(self.waypoints.waypoints)
+                cur_dist = self.dist_3d(self.pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
+                if cur_dist < min_dist:
+                    min_dist = cur_dist
+                    min_idx  = idx
+                if (min_dist < 5 and cur_dist > 10 * min_dist):
+                    break
+            dx = self.waypoints.waypoints[min_idx].pose.pose.position.x - self.pose.pose.position.x
+            dy = self.waypoints.waypoints[min_idx].pose.pose.position.y - self.pose.pose.position.y
+            heading = np.arctan2(dy, dx)
+            (roll, pitch, yaw) = self.get_roll_pitch_yaw(self.pose.pose.orientation)
+            angle = np.abs(yaw - heading)
+            angle = np.minimum(angle, 2.0 * np.pi - angle)
+            if angle > np.pi / 4.0:
+                self.cur_wp_idx = (min_idx + 1) % len(self.waypoints.waypoints)
+            else:
+                self.cur_wp_idx = min_idx
+            waypoint_index = self.cur_wp_idx
+            waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
+            rospy.loginfo('TLDetector determined car waypoint index %i: (%.2f, %.2f, %.2f)', waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
+        return waypoint_index
+
+    def get_closest_waypoint(self, light_idx):
+        """Identifies the closest path waypoint to the referenced light's stop line
+            https://en.wikipedia.org/wiki/Closest_pair_of_points_problem
+
+        Returns:
+            int: index of the closest waypoint in self.waypoints
+
+        """
+        # List of positions that correspond to the line to stop in front of for a given intersection
+        stop_line_position = self.config['stop_line_positions'][light_idx]
+        waypoint_index = None
+        if (self.waypoints)
+            min_dist = 100000.
+            min_idx  = self.cur_wp_idx
+            for i in range(self.cur_wp_idx, self.cur_wp_idx + len(self.waypoints.waypoints)):
+                idx = i % len(self.waypoints.waypoints)
+                cur_dist = self.dist_3d(stop_line_position, self.waypoints.waypoints[idx].pose.pose.position)
+                if cur_dist < min_dist:
+                    min_dist = cur_dist
+                    min_idx  = idx
+                if (min_dist < 5 and cur_dist > 10 * min_dist):
+                    break
+            waypoint_index = min_idx
+            waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
+            rospy.loginfo('TLDetector determined stop waypoint index %i: (%.2f, %.2f, %.2f)', waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
+        return waypoint_index
 
     def get_light_state(self, light):
         """Determines the current color of the traffic light
@@ -119,7 +277,7 @@ class TLDetector(object):
 
         cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
 
-        #Get classification
+        # Get classification
         return self.light_classifier.get_classification(cv_image)
 
     def process_traffic_lights(self):
@@ -131,20 +289,57 @@ class TLDetector(object):
             int: ID of traffic light color (specified in styx_msgs/TrafficLight)
 
         """
-        light = None
+        light_idx = None
 
-        # List of positions that correspond to the line to stop in front of for a given intersection
-        stop_line_positions = self.config['stop_line_positions']
-        if(self.pose):
-            car_position = self.get_closest_waypoint(self.pose.pose)
+        # Find the closest visible traffic light (if one exists)
+        waypoint_idx = self.get_closest_waypoint()
+        if ( self.waypoints and waypoint_idx and self.pose )
+            # look ahead through the waypoints along the next 200 meter
+            travel_dist = 0
+            found_light = False
+            for i in range(waypoint_idx, waypoint_idx + len(self.waypoints.waypoints)):
+                idx = i % len(self.waypoints.waypoints)
+                last_idx = idx - 1
+                if (last_idx < 0):
+                    last_idx = last_idx + len(self.waypoints.waypoints)
+                travel_dist = travel_dist + self.dist_3d(self.waypoints.waypoints[last_idx].pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
+                if (travel_dist > 200)
+                    break
+                # check if a traffic light is in range of 50 meter
+                for tli in range(self.lights):
+                    light_dist = self.dist_3d(self.lights[tli].pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
+                    if (light_dist < 50)
+                        found_light = True
+                        # check if traffic light is visible (in range of 30° from vehicle heading)
+                        dx = self.lights[tli].pose.pose.position.x - self.pose.pose.position.x
+                        dy = self.lights[tli].pose.pose.position.y - self.pose.pose.position.y
+                        light_direction = np.arctan2(dy, dx)
+                        (roll, pitch, yaw) = self.get_roll_pitch_yaw(self.pose.pose.orientation)
+                        delta_direction = np.abs(yaw - light_direction)
+                        delta_direction = np.minimum(delta_direction, 2.0 * np.pi - delta_direction)
+                        if (delta_direction < 30.0 * np.pi / 180.0):
+                            light_idx = tli
+                            light_pos = self.lights[tli].pose.pose.position
+                            rospy.loginfo('TLDetector determined traffic light index %i as visible: (%.2f, %.2f, %.2f)', tli, light_pos.x, light_pos.y, light_pos.z)
+                        else:
+                            light_pos = self.lights[tli].pose.pose.position
+                            rospy.loginfo('TLDetector determined traffic light index %i as invisble: (%.2f, %.2f, %.2f)', tli, light_pos.x, light_pos.y, light_pos.z)
+                        break
+                if ( found_light )
+                    break
 
-        #TODO find the closest visible traffic light (if one exists)
-
-        if light:
-            state = self.get_light_state(light)
+        if light_idx:
+            light_wp = self.get_closest_waypoint(light_idx)
+            # TODO: Use the commented line instead of the line below it
+            # state = self.get_light_state(light)
+            state = self.lights[light_idx].state
             return light_wp, state
-        self.waypoints = None
+        # self.waypoints = None
         return -1, TrafficLight.UNKNOWN
+
+    def get_roll_pitch_yaw(self, ros_quaternion):
+        orientation_list = [ros_quaternion.x, ros_quaternion.y, ros_quaternion.z, ros_quaternion.w]
+        return euler_from_quaternion(orientation_list) # returns (roll, pitch, yaw)
 
 if __name__ == '__main__':
     try:
