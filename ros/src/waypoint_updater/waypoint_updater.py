@@ -87,7 +87,7 @@ class WaypointUpdater(object):
             for i in range(start_idx, start_idx + len(self.waypoints_ref.waypoints)):
                 idx = i % len(self.waypoints_ref.waypoints)
                 cur_dist = self.dist_3d(msg.pose.position, self.waypoints_ref.waypoints[idx].pose.pose.position)
-                if cur_dist < min_dist:
+                if (cur_dist < min_dist):
                     min_dist = cur_dist
                     min_idx  = idx
                 if (min_dist < 5 and cur_dist > 10 * min_dist):
@@ -98,7 +98,7 @@ class WaypointUpdater(object):
             (roll, pitch, yaw) = self.get_roll_pitch_yaw(msg.pose.orientation)
             angle = np.abs(yaw - heading)
             angle = np.minimum(angle, 2.0 * np.pi - angle)
-            if angle > np.pi / 4.0:
+            if (angle > np.pi / 4.0):
                 self.cur_wp_ref_idx = (min_idx + 1) % len(self.waypoints_ref.waypoints)
             else:
                 self.cur_wp_ref_idx = min_idx

@@ -10,6 +10,7 @@ from light_classification.tl_classifier import TLClassifier
 import tf
 import cv2
 import yaml
+import math
 from tf.transformations import euler_from_quaternion
 import numpy as np
 
@@ -83,6 +84,31 @@ class TLDetector(object):
         # Store waypoint data for later usage
         self.pose = msg
         rospy.loginfo('TLDetector rec: pose data (%.2f, %.2f, %.2f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
+
+        # TODO: Remove the next block again (it is just taken in as long as no image processing is in place)
+        light_wp, state = self.process_traffic_lights()
+
+        '''
+        Publish upcoming red lights at camera frequency.
+        Each predicted state has to occur `STATE_COUNT_THRESHOLD` number
+        of times till we start using it. Otherwise the previous stable state is
+        used.
+        '''
+        if self.state != state:
+            self.state_count = 0
+            self.state = state
+        elif self.state_count >= STATE_COUNT_THRESHOLD:
+            self.last_state = self.state
+            light_wp = light_wp if state == TrafficLight.RED else -1
+            self.last_wp = light_wp
+            if (self.last_wp != -1):
+                rospy.loginfo('TLDetector pub: red light waypoint %i', light_wp)
+            self.upcoming_red_light_pub.publish(Int32(light_wp))
+        else:
+            if (self.last_wp != -1):
+                rospy.loginfo('TLDetector pub: red light waypoint %i', light_wp)
+            self.upcoming_red_light_pub.publish(Int32(self.last_wp))
+        self.state_count += 1
 
     # Callback to receive topic /base_waypoints
     #       msg.header    Header
@@ -195,7 +221,7 @@ class TLDetector(object):
             self.upcoming_red_light_pub.publish(Int32(self.last_wp))
         self.state_count += 1
 
-    def get_closest_waypoint(self):
+    def get_closest_waypoint_from_pose(self):
         """Identifies the closest path waypoint to the current car position
             https://en.wikipedia.org/wiki/Closest_pair_of_points_problem
 
@@ -204,7 +230,7 @@ class TLDetector(object):
 
         """
         waypoint_index = None
-        if (self.pose and self.waypoints)
+        if (self.pose and self.waypoints):
             # Calculate cur_wp_idx
             min_dist = 100000.
             min_idx  = self.cur_wp_idx
@@ -214,7 +240,7 @@ class TLDetector(object):
             for i in range(start_idx, start_idx + len(self.waypoints.waypoints)):
                 idx = i % len(self.waypoints.waypoints)
                 cur_dist = self.dist_3d(self.pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
-                if cur_dist < min_dist:
+                if (cur_dist < min_dist):
                     min_dist = cur_dist
                     min_idx  = idx
                 if (min_dist < 5 and cur_dist > 10 * min_dist):
@@ -225,13 +251,13 @@ class TLDetector(object):
             (roll, pitch, yaw) = self.get_roll_pitch_yaw(self.pose.pose.orientation)
             angle = np.abs(yaw - heading)
             angle = np.minimum(angle, 2.0 * np.pi - angle)
-            if angle > np.pi / 4.0:
+            if (angle > np.pi / 4.0):
                 self.cur_wp_idx = (min_idx + 1) % len(self.waypoints.waypoints)
             else:
                 self.cur_wp_idx = min_idx
             waypoint_index = self.cur_wp_idx
             waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
-            rospy.loginfo('TLDetector determined car waypoint index %i: (%.2f, %.2f, %.2f)', waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
+            rospy.loginfo('TLDetector det: car waypoint idx %i: (%.2f, %.2f, %.2f)', waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
         return waypoint_index
 
     def get_closest_waypoint(self, light_idx):
@@ -245,20 +271,22 @@ class TLDetector(object):
         # List of positions that correspond to the line to stop in front of for a given intersection
         stop_line_position = self.config['stop_line_positions'][light_idx]
         waypoint_index = None
-        if (self.waypoints)
+        if (self.waypoints):
             min_dist = 100000.
             min_idx  = self.cur_wp_idx
             for i in range(self.cur_wp_idx, self.cur_wp_idx + len(self.waypoints.waypoints)):
                 idx = i % len(self.waypoints.waypoints)
-                cur_dist = self.dist_3d(stop_line_position, self.waypoints.waypoints[idx].pose.pose.position)
-                if cur_dist < min_dist:
+                dx = stop_line_position[0] - self.waypoints.waypoints[idx].pose.pose.position.x
+                dy = stop_line_position[1] - self.waypoints.waypoints[idx].pose.pose.position.y
+                cur_dist = math.sqrt(dx**2 + dy**2)
+                if (cur_dist < min_dist):
                     min_dist = cur_dist
                     min_idx  = idx
                 if (min_dist < 5 and cur_dist > 10 * min_dist):
                     break
             waypoint_index = min_idx
             waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
-            rospy.loginfo('TLDetector determined stop waypoint index %i: (%.2f, %.2f, %.2f)', waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
+            rospy.loginfo('TLDetector det: stop waypoint idx %i: (%.2f, %.2f, %.2f)', waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
         return waypoint_index
 
     def get_light_state(self, light):
@@ -292,8 +320,8 @@ class TLDetector(object):
         light_idx = None
 
         # Find the closest visible traffic light (if one exists)
-        waypoint_idx = self.get_closest_waypoint()
-        if ( self.waypoints and waypoint_idx and self.pose )
+        waypoint_idx = self.get_closest_waypoint_from_pose()
+        if (self.waypoints and waypoint_idx and self.pose):
             # look ahead through the waypoints along the next 200 meter
             travel_dist = 0
             found_light = False
@@ -303,14 +331,14 @@ class TLDetector(object):
                 if (last_idx < 0):
                     last_idx = last_idx + len(self.waypoints.waypoints)
                 travel_dist = travel_dist + self.dist_3d(self.waypoints.waypoints[last_idx].pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
-                if (travel_dist > 200)
+                if (travel_dist > 110):
                     break
                 # check if a traffic light is in range of 50 meter
-                for tli in range(self.lights):
+                for tli in range(len(self.lights)):
                     light_dist = self.dist_3d(self.lights[tli].pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
-                    if (light_dist < 50)
+                    if (10 < light_dist and light_dist < 50):
                         found_light = True
-                        # check if traffic light is visible (in range of 30° from vehicle heading)
+                        # check if traffic light is visible (in range of 30 degrees from vehicle heading)
                         dx = self.lights[tli].pose.pose.position.x - self.pose.pose.position.x
                         dy = self.lights[tli].pose.pose.position.y - self.pose.pose.position.y
                         light_direction = np.arctan2(dy, dx)
@@ -320,15 +348,15 @@ class TLDetector(object):
                         if (delta_direction < 30.0 * np.pi / 180.0):
                             light_idx = tli
                             light_pos = self.lights[tli].pose.pose.position
-                            rospy.loginfo('TLDetector determined traffic light index %i as visible: (%.2f, %.2f, %.2f)', tli, light_pos.x, light_pos.y, light_pos.z)
+                            rospy.loginfo('TLDetector det: light idx %i as visible: (%.2f, %.2f, %.2f)', tli, light_pos.x, light_pos.y, light_pos.z)
                         else:
                             light_pos = self.lights[tli].pose.pose.position
-                            rospy.loginfo('TLDetector determined traffic light index %i as invisble: (%.2f, %.2f, %.2f)', tli, light_pos.x, light_pos.y, light_pos.z)
+                            rospy.loginfo('TLDetector det: light idx %i as invisble: (%.2f, %.2f, %.2f)', tli, light_pos.x, light_pos.y, light_pos.z)
                         break
-                if ( found_light )
+                if (found_light):
                     break
 
-        if light_idx:
+        if (light_idx):
             light_wp = self.get_closest_waypoint(light_idx)
             # TODO: Use the commented line instead of the line below it
             # state = self.get_light_state(light)
@@ -336,6 +364,9 @@ class TLDetector(object):
             return light_wp, state
         # self.waypoints = None
         return -1, TrafficLight.UNKNOWN
+
+    def dist_3d(self, a, b):
+        return math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2 + (a.z-b.z)**2)
 
     def get_roll_pitch_yaw(self, ros_quaternion):
         orientation_list = [ros_quaternion.x, ros_quaternion.y, ros_quaternion.z, ros_quaternion.w]
