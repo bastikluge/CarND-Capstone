@@ -350,7 +350,7 @@ class TLDetector(object):
                 if (found_light):
                     break
 
-        if (light_idx):
+        if (light_idx != None):
             light_wp = self.get_closest_waypoint(light_idx)
             # TODO: Use the commented line instead of the line below it
             # state = self.get_light_state(light)

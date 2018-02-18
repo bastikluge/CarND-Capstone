@@ -3,6 +3,7 @@
 import rospy
 from geometry_msgs.msg import PoseStamped, Quaternion
 from styx_msgs.msg import Lane, Waypoint
+from std_msgs.msg import Int32
 
 import math
 import numpy as np
@@ -25,8 +26,6 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 
-NO_TRAFFIC_COUNT_THRESHOLD = 5 # Number of times pose callback will persist received traffic light index
-
 DECELERATION = 2.0 # Absolute value of planned deceleration in m/s^2
 
 class WaypointUpdater(object):
@@ -37,8 +36,8 @@ class WaypointUpdater(object):
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
         # Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
-        rospy.Subscriber('/traffic_waypoint', Waypoint, self.traffic_cb)
-        rospy.Subscriber('/obstacle_waypoint', Waypoint, self.obstacle_cb)
+        rospy.Subscriber('/traffic_waypoint', Int32, self.traffic_cb)
+        rospy.Subscriber('/obstacle_waypoint', Int32, self.obstacle_cb)
 
         self.final_waypoints_pub = rospy.Publisher('/final_waypoints', Lane, queue_size=1)
 
@@ -47,8 +46,7 @@ class WaypointUpdater(object):
         self.cur_wp_ref_idx = 0
         self.waypoints_out = None
         
-        self.no_traffic_count = 0
-        self.traffic_wp_idx = None
+        self.traffic_wp_idx = -1
 
         rospy.spin()
 
@@ -84,10 +82,6 @@ class WaypointUpdater(object):
         else:
             # Log status of incoming data
             rospy.loginfo('WaypointUpdater rec: pose data (%.2f, %.2f, %.2f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
-            # Update traffic consideration status
-            self.no_traffic_count = self.no_traffic_count + 1
-            if (self.no_traffic_count > NO_TRAFFIC_COUNT_THRESHOLD):
-                self.traffic_wp_idx = None
             # Calculate cur_wp_ref_idx
             min_dist = 100000.0
             min_idx  = self.cur_wp_ref_idx
@@ -113,10 +107,11 @@ class WaypointUpdater(object):
             else:
                 self.cur_wp_ref_idx = min_idx
             # Calculate self.waypoints_out
-            self.waypoints_out = self.calc_waypoints_out()
+            self.calc_waypoints_out()
             # Publish the data
             waypoint_pos = self.waypoints_out.waypoints[0].pose.pose.position
-            rospy.loginfo('WaypointUpdater pub: from index %i: (%.2f, %.2f, %.2f)...', self.cur_wp_ref_idx, waypoint_pos.x, waypoint_pos.y, waypoint_pos.z)
+            waypoint_speed = self.waypoints_out.waypoints[0].twist.twist.linear.x
+            rospy.loginfo('WaypointUpdater pub: from index %i: (%.2f, %.2f, %.2f) with speed %.2f...', self.cur_wp_ref_idx, waypoint_pos.x, waypoint_pos.y, waypoint_pos.z, waypoint_speed)
             self.final_waypoints_pub.publish(self.waypoints_out)
         pass
 
@@ -172,12 +167,12 @@ class WaypointUpdater(object):
         
     # Callback to receive topic /traffic_waypoint
     # (index of waypoint where to stop in front of the next red traffic light)
-    #       msg  Int32
+    #       data  Int32
     def traffic_cb(self, msg):
         # Log status of incoming data
-        rospy.loginfo('WaypointUpdater rec: traffic waypoint index %i', msg)
+        rospy.loginfo('WaypointUpdater rec: traffic waypoint index %i', msg.data)
         self.no_traffic_count = 0
-        self.traffic_wp_idx = msg
+        self.traffic_wp_idx = msg.data
         pass
 
     def obstacle_cb(self, msg):
@@ -189,9 +184,10 @@ class WaypointUpdater(object):
         self.waypoints_out = Lane(self.waypoints_ref.header, [])
         for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + LOOKAHEAD_WPS):
             idx = i % len(self.waypoints_ref.waypoints)
+            self.waypoints_ref.waypoints[idx].twist.twist.linear.x = 10.0
             self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
         # Consider traffic
-        if (self.traffic_wp_idx):
+        if (self.traffic_wp_idx != -1):
             # Check if traffic light is in planning range
             light_out_idx = self.traffic_wp_idx - self.cur_wp_ref_idx
             if (light_out_idx < 0):
@@ -200,13 +196,13 @@ class WaypointUpdater(object):
                 # TODO: consider maximum comfortable jerk by choosing smooth velocity curve
                 # Determine required deceleration
                 dec        = DECELERATION
-                cur_speed  = self.waypoints_out.waypoints[0]
+                cur_speed  = self.waypoints_out.waypoints[0].twist.twist.linear.x
                 dec_time   = cur_speed / dec
                 dec_dist   = 0.5 * dec * dec_time * dec_time
                 light_dist = self.distance(self.cur_wp_ref_idx, self.traffic_wp_idx)
                 if (light_dist < dec_dist):
                     dec = 0.5 * cur_speed * cur_speed / dec_dist
-                    rospy.warn('WaypointUpdater needs to plan uncomfortable deceleration %.2f m/s^2', dec)
+                    rospy.logwarn('WaypointUpdater needs to plan uncomfortable deceleration %.2f m/s^2', dec)
                 else:
                     rospy.loginfo('WaypointUpdater plans comfortable deceleration %.2f m/s^2', dec)
                 # Adjust speed
@@ -235,7 +231,7 @@ class WaypointUpdater(object):
         for i in range(wp_idx_first, wp_idx_last):
             idx = i % len(self.waypoints_ref.waypoints)
             next_idx = (i+1) % len(self.waypoints_ref.waypoints)
-            dist += dist_3d(self.waypoints_ref.waypoints[idx].pose.pose.position, self.waypoints_ref.waypoints[next_idx].pose.pose.position)
+            dist += self.dist_3d(self.waypoints_ref.waypoints[idx].pose.pose.position, self.waypoints_ref.waypoints[next_idx].pose.pose.position)
         return dist
 
     def get_roll_pitch_yaw(self, ros_quaternion):
