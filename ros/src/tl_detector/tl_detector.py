@@ -85,15 +85,8 @@ class TLDetector(object):
         self.pose = msg
         rospy.loginfo('TLDetector rec: pose data (%.2f, %.2f, %.2f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
 
-        # TODO: Remove the next block again (it is just taken in as long as no image processing is in place)
+        # TODO begin: Remove the next block again (it is just taken in as long as no image processing is in place)
         light_wp, state = self.process_traffic_lights()
-
-        '''
-        Publish upcoming red lights at camera frequency.
-        Each predicted state has to occur `STATE_COUNT_THRESHOLD` number
-        of times till we start using it. Otherwise the previous stable state is
-        used.
-        '''
         if self.state != state:
             self.state_count = 0
             self.state = state
@@ -109,6 +102,7 @@ class TLDetector(object):
                 rospy.loginfo('TLDetector pub: red light waypoint %i', light_wp)
             self.upcoming_red_light_pub.publish(Int32(self.last_wp))
         self.state_count += 1
+        # TODO end
 
     # Callback to receive topic /base_waypoints
     #       msg.header    Header

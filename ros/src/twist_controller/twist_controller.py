@@ -11,6 +11,7 @@ class Controller(object):
     def __init__(self, vehicle_mass, wheel_radius, wheel_base, steer_ratio, max_lat_accel, max_steer_angle):
         self.vehicle_mass = vehicle_mass
         self.wheel_radius = wheel_radius
+        # TODO: Determine proper PID control parameters
         self.speed_controller = PID(1.0, 0.0, 0.0, -5.0, GAS_DENSITY)
         self.yaw_controller   = YawController(wheel_base, steer_ratio, ONE_MPH, max_lat_accel, max_steer_angle)
         pass
@@ -19,6 +20,7 @@ class Controller(object):
         if not enabled:
             self.speed_controller.reset()
         lin_v_err = proposed_lin_v - current_lin_v
+        # TODO: Determine proper conversion such that the below acc is really an acceleration in m/s^2
         acc = self.speed_controller.step(lin_v_err, 1.0/50.0)
         throttle = 0.0
         brake    = 0.0
