@@ -380,7 +380,8 @@ class TLDetector(object):
                                         + str(self.lights[tli].state) + '\n')
                                 self.next_image_idx = self.next_image_idx + 1
                             # check if traffic light is visible from vehicle
-                            if (-100 < dxyz_vehicle[1] and dxyz_vehicle[1] < 100 and
+                            if ( 24  < dxyz_vehicle[1] and dxyz_vehicle[0] < 150 and
+                                -100 < dxyz_vehicle[1] and dxyz_vehicle[1] < 100 and
                                 -10  < dxyz_vehicle[2] and dxyz_vehicle[2] < 100):
                                 light_idx = tli
                                 light_pos = self.lights[tli].pose.pose.position
