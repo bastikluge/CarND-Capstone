@@ -368,15 +368,16 @@ class TLDetector(object):
                             dxyz_vehicle = np.matmul(inv_rotation_matrix, [[dx_world], [dy_world], [dz_world]])
                             rospy.loginfo('TLDetector calculated vector to traffic light (%.2f, %.2f, %.2f)', dxyz_vehicle[0], dxyz_vehicle[1], dxyz_vehicle[2])
                             # convert image to cv2 format
-                            cv2_image = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
+                            cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
+                            cv2_bgr = cv2.cvtColor(frame_image, cv2.COLOR_RGB2BGR)
                             # write some output for training the classifier
                             if (self.next_image_idx != None) and (self.camera_image != None):
                                 filename = './traffic_light_images/traffic_light_' + str(self.next_image_idx) + '.png'
-                                cv2.imwrite(filename, cv2_image)
+                                cv2.imwrite(filename, cv2_bgr)
                                 with open('./traffic_light_images/params.csv','a') as file:
                                     file.write(str(self.next_image_idx) + ','
-                                        + str(dxyz_vehicle[0]) + ',' + str(dxyz_vehicle[1]) + ',' + str(dxyz_vehicle[2]) + ','
-                                        + str(self.lights[tli].state))
+                                        + str(dxyz_vehicle[0][0]) + ',' + str(dxyz_vehicle[1][0]) + ',' + str(dxyz_vehicle[2][0]) + ','
+                                        + str(self.lights[tli].state) + '\n')
                                 self.next_image_idx = self.next_image_idx + 1
                             # check if traffic light is visible from vehicle
                             if (-100 < dxyz_vehicle[1] and dxyz_vehicle[1] < 100 and
