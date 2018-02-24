@@ -13,6 +13,7 @@ import yaml
 import math
 from tf.transformations import euler_from_quaternion
 import numpy as np
+import cv2
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -53,6 +54,8 @@ class TLDetector(object):
         self.last_wp = -1
         self.state_count = 0
 
+        self.next_image_idx = 0
+
         rospy.spin()
 
     # Callback to receive topic /current_pose
@@ -83,7 +86,8 @@ class TLDetector(object):
     def pose_cb(self, msg):
         # Store waypoint data for later usage
         self.pose = msg
-        rospy.loginfo('TLDetector rec: pose data (%.2f, %.2f, %.2f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
+        rospy.loginfo('TLDetector rec: pose data (%.2f, %.2f, %.2f)',
+            msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
 
         # TODO begin: Remove the next block again (it is just taken in as long as no image processing is in place)
         light_wp, state = self.process_traffic_lights()
@@ -185,6 +189,14 @@ class TLDetector(object):
     def traffic_cb(self, msg):
         self.lights = msg.lights
 
+    # Callback to receive the camera image from the vehicle
+    #   std_msgs/Header header
+    #   uint32          height
+    #   uint32          width
+    #   string          encoding
+    #   uint8           is_bigendian
+    #   uint32          step
+    #   uint8[]         data
     def image_cb(self, msg):
         """Identifies red lights in the incoming camera image and publishes the index
             of the waypoint closest to the red light's stop line to /traffic_waypoint
@@ -251,7 +263,8 @@ class TLDetector(object):
                 self.cur_wp_idx = min_idx
             waypoint_index = self.cur_wp_idx
             waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
-            rospy.loginfo('TLDetector det: car waypoint idx %i: (%.2f, %.2f, %.2f)', waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
+            rospy.loginfo('TLDetector det: car waypoint idx %i: (%.2f, %.2f, %.2f)',
+                waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
         return waypoint_index
 
     def get_closest_waypoint(self, light_idx):
@@ -280,7 +293,8 @@ class TLDetector(object):
                     break
             waypoint_index = min_idx
             waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
-            rospy.loginfo('TLDetector det: stop waypoint idx %i: (%.2f, %.2f, %.2f)', waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
+            rospy.loginfo('TLDetector det: stop waypoint idx %i: (%.2f, %.2f, %.2f)',
+                waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
         return waypoint_index
 
     def get_light_state(self, light):
@@ -316,7 +330,7 @@ class TLDetector(object):
         # Find the closest visible traffic light (if one exists)
         waypoint_idx = self.get_closest_waypoint_from_pose()
         if (self.waypoints and waypoint_idx and self.pose):
-            # look ahead through the waypoints along the next 200 meter
+            # look ahead through the waypoints along the next 120 meter
             travel_dist = 0
             found_light = False
             for i in range(waypoint_idx, waypoint_idx + len(self.waypoints.waypoints)):
@@ -324,28 +338,54 @@ class TLDetector(object):
                 last_idx = idx - 1
                 if (last_idx < 0):
                     last_idx = last_idx + len(self.waypoints.waypoints)
-                travel_dist = travel_dist + self.dist_3d(self.waypoints.waypoints[last_idx].pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
-                if (travel_dist > 110):
+                last_pos = self.waypoints.waypoints[last_idx].pose.pose.position
+                this_pos = self.waypoints.waypoints[idx].pose.pose.position
+                travel_dist = travel_dist + self.dist_3d(last_pos, this_pos)
+                if (travel_dist > 120):
                     break
-                # check if a traffic light is in range of 50 meter
+                # check if a traffic light is in range of 30 meter
                 for tli in range(len(self.lights)):
-                    light_dist = self.dist_3d(self.lights[tli].pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
-                    if (10 < light_dist and light_dist < 50):
+                    wp_light_dist = self.dist_3d(self.lights[tli].pose.pose.position, self.waypoints.waypoints[idx].pose.pose.position)
+                    if (wp_light_dist < 30):
                         found_light = True
-                        # check if traffic light is visible (in range of 30 degrees from vehicle heading)
-                        dx = self.lights[tli].pose.pose.position.x - self.pose.pose.position.x
-                        dy = self.lights[tli].pose.pose.position.y - self.pose.pose.position.y
-                        light_direction = np.arctan2(dy, dx)
+                        # calculate vector to traffic light relative in vehicle coordinate system
+                        pose_light_dist = self.dist_3d(self.lights[tli].pose.pose.position, self.pose.pose.position)
+                        dx_world = self.lights[tli].pose.pose.position.x - self.pose.pose.position.x
+                        dy_world = self.lights[tli].pose.pose.position.y - self.pose.pose.position.y
+                        dz_world = self.lights[tli].pose.pose.position.z - self.pose.pose.position.z
                         (roll, pitch, yaw) = self.get_roll_pitch_yaw(self.pose.pose.orientation)
-                        delta_direction = np.abs(yaw - light_direction)
-                        delta_direction = np.minimum(delta_direction, 2.0 * np.pi - delta_direction)
-                        if (delta_direction < 30.0 * np.pi / 180.0):
-                            light_idx = tli
-                            light_pos = self.lights[tli].pose.pose.position
-                            rospy.loginfo('TLDetector det: light idx %i as visible: (%.2f, %.2f, %.2f)', tli, light_pos.x, light_pos.y, light_pos.z)
-                        else:
-                            light_pos = self.lights[tli].pose.pose.position
-                            rospy.loginfo('TLDetector det: light idx %i as invisble: (%.2f, %.2f, %.2f)', tli, light_pos.x, light_pos.y, light_pos.z)
+                        s_y = math.sin(yaw)
+                        c_y = math.cos(yaw)
+                        s_p = math.sin(pitch)
+                        c_p = math.cos(pitch)
+                        s_r = math.sin(roll)
+                        c_r = math.cos(roll)
+                        rotation_matrix = \
+                            [[c_y*c_p, c_y*s_p*s_r - s_y*c_r, c_y*s_p*c_r + s_y*s_r], \
+                            [ s_y*c_p, s_y*s_p*s_r + c_y*c_r, s_y*s_p*c_r - c_y*s_r], \
+                            [    -s_p,     c_p*s_r,               c_p*c_r]]
+                        if np.linalg.matrix_rank(rotation_matrix) == 3:
+                            inv_rotation_matrix = np.linalg.inv(rotation_matrix)
+                            dxyz_vehicle = np.matmul(inv_rotation_matrix, [[dx_world], [dy_world], [dz_world]])
+                            # write some output for training the classifier
+                            if self.next_image_idx != None:
+                                filename = './traffic_light_images/traffic_light_' + str(self.next_image_idx) + '.png'
+                                cv2.imwrite(filename, self.camera_image.data)
+                                with open('./traffic_light_images/params.csv','a') as file:
+                                    file.write(self.next_image_idx + ','
+                                        + dxyz_vehicle[0] + ',' + dxyz_vehicle[1] + ',' + dxyz_vehicle[2] + ','
+                                        + self.lights[tli].state)
+                            # check if traffic light is visible from vehicle
+                            if (-100 < dxyz_vehicle[1] and dxyz_vehicle[1] < 100 and
+                                -10  < dxyz_vehicle[2] and dxyz_vehicle[2] < 100):
+                                light_idx = tli
+                                light_pos = self.lights[tli].pose.pose.position
+                                rospy.loginfo('TLDetector det: light idx %i as visible: (%.2f, %.2f, %.2f)',
+                                    tli, light_pos.x, light_pos.y, light_pos.z)
+                            else:
+                                light_pos = self.lights[tli].pose.pose.position
+                                rospy.loginfo('TLDetector det: light idx %i as invisble: (%.2f, %.2f, %.2f)',
+                                    tli, light_pos.x, light_pos.y, light_pos.z)
                         break
                 if (found_light):
                     break
