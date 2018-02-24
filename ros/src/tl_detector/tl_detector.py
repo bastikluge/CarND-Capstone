@@ -13,7 +13,6 @@ import yaml
 import math
 from tf.transformations import euler_from_quaternion
 import numpy as np
-import cv2
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -90,22 +89,22 @@ class TLDetector(object):
             msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
 
         # TODO begin: Remove the next block again (it is just taken in as long as no image processing is in place)
-        light_wp, state = self.process_traffic_lights()
-        if self.state != state:
-            self.state_count = 0
-            self.state = state
-        elif self.state_count >= STATE_COUNT_THRESHOLD:
-            self.last_state = self.state
-            light_wp = light_wp if state == TrafficLight.RED else -1
-            self.last_wp = light_wp
-            if (self.last_wp != -1):
-                rospy.loginfo('TLDetector pub: red light waypoint %i', light_wp)
-            self.upcoming_red_light_pub.publish(Int32(light_wp))
-        else:
-            if (self.last_wp != -1):
-                rospy.loginfo('TLDetector pub: red light waypoint %i', light_wp)
-            self.upcoming_red_light_pub.publish(Int32(self.last_wp))
-        self.state_count += 1
+        #light_wp, state = self.process_traffic_lights()
+        #if self.state != state:
+        #    self.state_count = 0
+        #    self.state = state
+        #elif self.state_count >= STATE_COUNT_THRESHOLD:
+        #    self.last_state = self.state
+        #    light_wp = light_wp if state == TrafficLight.RED else -1
+        #    self.last_wp = light_wp
+        #    if (self.last_wp != -1):
+        #        rospy.loginfo('TLDetector pub: red light waypoint %i', light_wp)
+        #    self.upcoming_red_light_pub.publish(Int32(light_wp))
+        #else:
+        #    if (self.last_wp != -1):
+        #        rospy.loginfo('TLDetector pub: red light waypoint %i', light_wp)
+        #    self.upcoming_red_light_pub.publish(Int32(self.last_wp))
+        #self.state_count += 1
         # TODO end
 
     # Callback to receive topic /base_waypoints
@@ -367,14 +366,18 @@ class TLDetector(object):
                         if np.linalg.matrix_rank(rotation_matrix) == 3:
                             inv_rotation_matrix = np.linalg.inv(rotation_matrix)
                             dxyz_vehicle = np.matmul(inv_rotation_matrix, [[dx_world], [dy_world], [dz_world]])
+                            rospy.loginfo('TLDetector calculated vector to traffic light (%.2f, %.2f, %.2f)', dxyz_vehicle[0], dxyz_vehicle[1], dxyz_vehicle[2])
+                            # convert image to cv2 format
+                            cv2_image = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
                             # write some output for training the classifier
-                            if self.next_image_idx != None:
+                            if (self.next_image_idx != None) and (self.camera_image != None):
                                 filename = './traffic_light_images/traffic_light_' + str(self.next_image_idx) + '.png'
-                                cv2.imwrite(filename, self.camera_image.data)
+                                cv2.imwrite(filename, cv2_image)
                                 with open('./traffic_light_images/params.csv','a') as file:
-                                    file.write(self.next_image_idx + ','
-                                        + dxyz_vehicle[0] + ',' + dxyz_vehicle[1] + ',' + dxyz_vehicle[2] + ','
-                                        + self.lights[tli].state)
+                                    file.write(str(self.next_image_idx) + ','
+                                        + str(dxyz_vehicle[0]) + ',' + str(dxyz_vehicle[1]) + ',' + str(dxyz_vehicle[2]) + ','
+                                        + str(self.lights[tli].state))
+                                self.next_image_idx = self.next_image_idx + 1
                             # check if traffic light is visible from vehicle
                             if (-100 < dxyz_vehicle[1] and dxyz_vehicle[1] < 100 and
                                 -10  < dxyz_vehicle[2] and dxyz_vehicle[2] < 100):
