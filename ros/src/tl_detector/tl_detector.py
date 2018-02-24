@@ -369,7 +369,7 @@ class TLDetector(object):
                             rospy.loginfo('TLDetector calculated vector to traffic light (%.2f, %.2f, %.2f)', dxyz_vehicle[0], dxyz_vehicle[1], dxyz_vehicle[2])
                             # convert image to cv2 format
                             cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
-                            cv2_bgr = cv2.cvtColor(frame_image, cv2.COLOR_RGB2BGR)
+                            cv2_bgr = cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR)
                             # write some output for training the classifier
                             if (self.next_image_idx != None) and (self.camera_image != None):
                                 filename = './traffic_light_images/traffic_light_' + str(self.next_image_idx) + '.png'
