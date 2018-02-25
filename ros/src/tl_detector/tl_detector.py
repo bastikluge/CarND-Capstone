@@ -412,6 +412,7 @@ class TLDetector(object):
                                     self.next_image_idx = self.next_image_idx + 1
                                 else:
                                     # TODO: classification of cropped and scaled image
+                                    state = self.lights[light_idx].state
                             else:
                                 light_pos = self.lights[tli].pose.pose.position
                                 rospy.loginfo('TLDetector det: light idx %i as invisble: (%.2f, %.2f, %.2f)',
