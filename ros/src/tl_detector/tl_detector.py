@@ -387,20 +387,20 @@ class TLDetector(object):
                             cropped_x_center = -2644 * dy_veh_scaled + 366.4
                             cropped_y_center = -2137 * dz_veh_scaled + 613.9
                             cropped_x_from = int(round(cropped_x_center - cropped_edge_len/2))
-                            cropped_y_from = int(round(cropped_y_center + cropped_edge_len/2))
-                            cropped_x_to   = int(round(cropped_x_center - cropped_edge_len/2))
+                            cropped_y_from = int(round(cropped_y_center - cropped_edge_len/2))
+                            cropped_x_to   = int(round(cropped_x_center + cropped_edge_len/2))
                             cropped_y_to   = int(round(cropped_y_center + cropped_edge_len/2))
                             rospy.loginfo('TLDetector calc: image bbox(light) = [(%i, %i), (%i, %i)]',
                                 cropped_x_from, cropped_y_from, cropped_x_to, cropped_y_to)
                             rospy.loginfo('TLDetector det: image.size() = (%i, %i)', cv2_bgr.shape[0], cv2_bgr.shape[1])
                             if ( (cropped_x_to - cropped_x_from >= 32) and
-                                 (cropped_x_from >= 0) and (cropped_x_to < cv2_bgr.shape[0]) and
-                                 (cropped_y_from >= 0) and (cropped_y_to < cv2_bgr.shape[1]) ):
+                                 (cropped_x_from >= 0) and (cropped_x_to < cv2_bgr.shape[1]) and
+                                 (cropped_y_from >= 0) and (cropped_y_to < cv2_bgr.shape[0]) ):
                                 light_idx = tli
                                 light_pos = self.lights[tli].pose.pose.position
                                 rospy.loginfo('TLDetector det: light idx %i as visible: (%.2f, %.2f, %.2f)',
                                     tli, light_pos.x, light_pos.y, light_pos.z)
-                                cv2_bgr_cropped = cv2_bgr[cropped_x_from:cropped_x_to, cropped_y_from:cropped_y_to]
+                                cv2_bgr_cropped = cv2_bgr[cropped_y_from:cropped_y_to, cropped_x_from:cropped_x_to]
                                 # write some output for training the classifier
                                 if (self.next_image_idx != None) and (self.camera_image != None):
                                     filename = './traffic_light_images/traffic_light_cropped' + str(self.next_image_idx) + '.png'
