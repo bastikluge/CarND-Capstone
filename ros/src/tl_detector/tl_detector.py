@@ -53,7 +53,7 @@ class TLDetector(object):
         self.last_wp = -1
         self.state_count = 0
 
-        self.next_image_idx = 0
+        self.next_image_idx = 845
 
         rospy.spin()
 
@@ -381,8 +381,6 @@ class TLDetector(object):
                             cropped_y_to   = cropped_y_from   + cropped_edge_len
                             rospy.loginfo('TLDetector calc: image bbox(light) = [(%i, %i), (%i, %i)]',
                                 cropped_x_from, cropped_y_from, cropped_x_to, cropped_y_to)
-                            rospy.loginfo('TLDetector det: image.size() = (%i, %i)',
-                                self.camera_image.width, self.camera_image.height)
                             if ( (cropped_x_to - cropped_x_from >= 32) and
                                  (cropped_x_from >= 0) and (cropped_x_to < self.camera_image.width) and
                                  (cropped_y_from >= 0) and (cropped_y_to < self.camera_image.height) ):
