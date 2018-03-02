@@ -1,0 +1,2 @@
+model_checkpoint_path: "linux_tensor0.999"
+all_model_checkpoint_paths: "linux_tensor0.999"
