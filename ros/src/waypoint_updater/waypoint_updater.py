@@ -202,7 +202,7 @@ class WaypointUpdater(object):
                 light_dist = self.distance(self.cur_wp_ref_idx, self.traffic_wp_idx)
                 if (light_dist < dec_dist):
                     dec = 0.5 * cur_speed * cur_speed / dec_dist
-                    rospy.logwarn('WaypointUpdater needs to plan uncomfortable deceleration %.2f m/s^2', dec)
+#                     rospy.logwarn('WaypointUpdater needs to plan uncomfortable deceleration %.2f m/s^2', dec)
                 else:
                     rospy.loginfo('WaypointUpdater plans comfortable deceleration %.2f m/s^2', dec)
                 # Adjust speed

@@ -18,7 +18,7 @@ STATE_COUNT_THRESHOLD = 3
 
 class TLDetector(object):
     def __init__(self):
-        rospy.init_node('tl_detector')
+        rospy.init_node('tl_detector', log_level=rospy.WARN)
 
         self.pose = None
         self.waypoints = None
@@ -53,7 +53,10 @@ class TLDetector(object):
         self.last_wp = -1
         self.state_count = 0
 
-        self.next_image_idx = 845
+#         self.next_image_idx = 845
+        self.next_image_idx = None
+        self.misclassification_counter = 0 #counts the number of false classifications
+        self.debugmode = False #set to true to store the misclassified images
 
         rospy.spin()
 
@@ -390,9 +393,17 @@ class TLDetector(object):
                                     tli, light_pos.x, light_pos.y, light_pos.z)
                                 # convert image to cv2 format
                                 cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
-                                cv2_bgr = cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR)
-                                cv2_bgr_cropped = cv2_bgr[cropped_y_from:cropped_y_to, cropped_x_from:cropped_x_to]
-                                cv2_bgr_scaled  = cv2.resize(cv2_bgr_cropped, (32, 32))
+                                cv2_rgb = cv2_rgb[cropped_y_from:cropped_y_to, cropped_x_from:cropped_x_to]
+                                state = self.light_classifier.get_classification(cv2_rgb) 
+                                if (state != self.lights[light_idx].state):
+                                    rospy.logwarn("TLDetector misdetection expected {0} got {1} - total of {2} misclassifications"
+                                                  .format(self.lights[light_idx].state, state, self.misclassification_counter+1))
+                                    colorVal = ['red', 'yellow', 'green']
+                                    filename = "./misclassified/mismatch_{0}{1}.jpg".\
+                                      format(colorVal[self.lights[light_idx].state], self.misclassification_counter)
+                                    self.misclassification_counter+=1
+                                    if self.debugmode:
+                                        cv2.imwrite(filename, cv2_rgb)
                                 # write some output for training the classifier
                                 if (self.next_image_idx != None):
                                     # complete image (for reference)
@@ -404,13 +415,10 @@ class TLDetector(object):
                                     #        + str(self.lights[tli].state) + '\n')
                                     # cropped image (for training and/or classification)
                                     filename = './traffic_light_images/traffic_light_cropped' + str(self.next_image_idx) + '.png'
-                                    cv2.imwrite(filename, cv2_bgr_scaled)
+                                    cv2.imwrite(filename, cv2.resize(cv2_rgb, (32, 32)))
                                     with open('./traffic_light_images/light_state.csv','a') as file:
                                         file.write(str(self.next_image_idx) + ',' + str(self.lights[tli].state) + '\n')
                                     self.next_image_idx = self.next_image_idx + 1
-                                else:
-                                    # TODO: classification of cropped and scaled image
-                                    state = self.lights[light_idx].state
                             else:
                                 light_pos = self.lights[tli].pose.pose.position
                                 rospy.loginfo('TLDetector det: light idx %i as invisble: (%.2f, %.2f, %.2f)',
@@ -423,7 +431,8 @@ class TLDetector(object):
             light_wp = self.get_closest_waypoint(light_idx)
             # TODO: Use the commented line instead of the line below it
             # state = self.get_light_state(light)
-            state = self.lights[light_idx].state
+            if None is state:
+              state = self.lights[light_idx].state
             return light_wp, state
         # self.waypoints = None
         return -1, TrafficLight.UNKNOWN
