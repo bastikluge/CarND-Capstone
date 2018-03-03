@@ -50,6 +50,7 @@ class WaypointUpdater(object):
         self.waypoints_out = None
         
         self.traffic_wp_idx = -1
+        self.waypoints_with_reduced_velocity = []
 
         rospy.spin()
 
@@ -115,13 +116,28 @@ class WaypointUpdater(object):
             # Calculate self.waypoints_out
             #ONLY if the waypoint really has changed
             if prev_Last_wp_index != self.cur_wp_ref_idx:
-              self.calc_waypoints_out()
-            # Publish the data
-            waypoint_pos = self.waypoints_out.waypoints[0].pose.pose.position
-            waypoint_speed = self.waypoints_out.waypoints[0].twist.twist.linear.x
-            rospy.loginfo('WaypointUpdater pub: from index %i: (%.2f, %.2f, %.2f) with speed %.2f...', self.cur_wp_ref_idx, waypoint_pos.x, waypoint_pos.y, waypoint_pos.z, waypoint_speed)
-            self.final_waypoints_pub.publish(self.waypoints_out)
+              #send an update on the waypoint list
+              self.filter_and_send_waypoints()
+              wp = self.waypoints_ref.waypoints[self.cur_wp_ref_idx]
+              waypoint_pos = wp.pose.pose.position
+              waypoint_speed = wp.twist.twist.linear.x
+              rospy.loginfo('WaypointUpdater pub: from index %i: (%.2f, %.2f, %.2f) with speed %.2f...'\
+                            , self.cur_wp_ref_idx, waypoint_pos.x, waypoint_pos.y, waypoint_pos.z, waypoint_speed)
         pass
+      
+    #Copy the waypoints from the current car waypoints up to 
+    #LOOKAHEAD_WPS waypoints in total and send them out  
+    def filter_and_send_waypoints(self):
+      rWaypoints = Lane()
+      pos = self.cur_wp_ref_idx
+      wp = self.waypoints_ref.waypoints
+      rWaypoints.header = self.waypoints_ref.header
+      rWaypoints.waypoints = wp[pos: min(pos+LOOKAHEAD_WPS, len(wp))]
+      size = len(rWaypoints.waypoints)
+      if size < LOOKAHEAD_WPS:
+        rWaypoints.waypoints += wp[:LOOKAHEAD_WPS-size]
+      self.final_waypoints_pub.publish(rWaypoints)
+      
 
     # Callback to receive topic /base_waypoints
     #       msg.header    Header
@@ -170,7 +186,15 @@ class WaypointUpdater(object):
     def waypoints_cb(self, waypoints):
         # Store waypoint data for later usage
         self.waypoints_ref = waypoints
-        rospy.loginfo('WaypointUpdater is initialized with %i reference waypoints', len(self.waypoints_ref.waypoints))
+        #make sure, that none of the waypoints violates the max-speed condition
+        counter = 0
+        for wp in self.waypoints_ref.waypoints:
+          if self.get_waypoint_velocity(wp) > self.c_max_velocity:
+            wp.twist.twist.linear.x = self.c_max_velocity
+            counter += 1
+        rospy.loginfo('WaypointUpdater is initialized with {0} reference waypoints'\
+                      ' - total of {1} were adjusted in velocity'\
+                      .format(len(self.waypoints_ref.waypoints), counter))
         pass
         
     # Callback to receive topic /traffic_waypoint
@@ -181,6 +205,7 @@ class WaypointUpdater(object):
         rospy.loginfo('WaypointUpdater rec: traffic waypoint index %i', msg.data)
         self.no_traffic_count = 0
         self.traffic_wp_idx = msg.data
+        self.calc_waypoints_out()
         pass
 
     def obstacle_cb(self, msg):
@@ -188,42 +213,71 @@ class WaypointUpdater(object):
         pass
         
     def calc_waypoints_out(self):
-        # Calculate the unconstrained case (no traffic light / obstacle)
-        self.waypoints_out = Lane(self.waypoints_ref.header, [])
-        for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + LOOKAHEAD_WPS):
-            idx = i % len(self.waypoints_ref.waypoints)
-            #always run with full velocity
-            self.waypoints_ref.waypoints[idx].twist.twist.linear.x = self.c_max_velocity
-            self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
+#         # Calculate the unconstrained case (no traffic light / obstacle)
+            
+        #TODO: move to the constant section
+        DISTANCE_SECURITY_ZERO_SPEED = 2.
+        DISTANCE_SECURITY_ONE_SPEED = 3.
+        
+        
+        #use reference to avoid long names
+        all_wp = self.waypoints_ref.waypoints
+        
         # Consider traffic
-        if (self.traffic_wp_idx != -1):
+        # only if the waypoints_with_reduced_velocity isn't None, we need
+        # to recalculate the velocity of the waypoints
+        if (self.traffic_wp_idx != -1) and (0 == len(self.waypoints_with_reduced_velocity)):
             # Check if traffic light is in planning range
-            light_out_idx = self.traffic_wp_idx - self.cur_wp_ref_idx
-            if (light_out_idx < 0):
-                light_out_idx = light_out_idx + len(self.waypoints_ref.waypoints)
-            if (light_out_idx < len(self.waypoints_out.waypoints)):
-                # TODO: consider maximum comfortable jerk by choosing smooth velocity curve
-                # Determine required deceleration
-                dec        = DECELERATION
-                cur_speed  = self.waypoints_out.waypoints[0].twist.twist.linear.x
-                dec_time   = cur_speed / dec
-                dec_dist   = 0.5 * dec * dec_time * dec_time
-                light_dist = self.distance(self.cur_wp_ref_idx, self.traffic_wp_idx)
-                if (light_dist < dec_dist):
-                    dec = 0.5 * cur_speed * cur_speed / dec_dist
-                    rospy.logwarn('WaypointUpdater needs to plan uncomfortable deceleration %.2f m/s^2', dec)
-                else:
-                    rospy.loginfo('WaypointUpdater plans comfortable deceleration %.2f m/s^2', dec)
-                # Adjust speed
-                self.waypoints_out.waypoints[light_out_idx].twist.twist.linear.x = 0.0
-                for out_idx in range(light_out_idx-1, -1, -1):
-                    wp_dist  = self.dist_3d(self.waypoints_out.waypoints[out_idx].pose.pose.position, self.waypoints_out.waypoints[out_idx+1].pose.pose.position)
-                    wp_time  = math.sqrt(2.0 * wp_dist / dec)
-                    wp_speed = self.waypoints_out.waypoints[out_idx+1].twist.twist.linear.x + wp_time * dec
-                    if (wp_speed < self.waypoints_out.waypoints[out_idx].twist.twist.linear.x):
-                        self.waypoints_out.waypoints[out_idx].twist.twist.linear.x = wp_speed
-                    else:
-                        break
+            light_dist = self.distance(self.cur_wp_ref_idx, self.traffic_wp_idx)
+            
+            # TODO: consider maximum comfortable jerk by choosing smooth velocity curve
+            # Determine required deceleration
+            dec        = DECELERATION
+            cur_speed  = self.get_waypoint_velocity(all_wp[self.cur_wp_ref_idx])
+            dec_time   = (cur_speed - 1.) / dec
+            dec_dist   = 0.5 * dec * dec_time * dec_time
+            light_dist = self.distance(self.cur_wp_ref_idx, self.traffic_wp_idx)
+            light_dist_plus_security = light_dist + DISTANCE_SECURITY_ONE_SPEED
+            if (light_dist_plus_security < dec_dist):
+                dec = 0.5 * cur_speed * cur_speed / dec_dist
+                rospy.logwarn('WaypointUpdater needs to plan uncomfortable deceleration %.2f m/s^2', dec)
+            else:
+                rospy.loginfo('WaypointUpdater plans comfortable deceleration %.2f m/s^2', dec)
+                
+            
+            # Adjust speed
+            distance_wp_tl = 0.
+
+            current_wp_idx = self.traffic_wp_idx
+            prev_wp_idx = self.traffic_wp_idx
+            while distance_wp_tl < dec_dist:
+              current_wp_speed = self.get_waypoint_velocity(all_wp[current_wp_idx])
+              self.waypoints_with_reduced_velocity.append( [current_wp_idx, current_wp_speed])
+              distance_wp_tl = self.dist_3d(all_wp[self.traffic_wp_idx].pose.pose.position, all_wp[prev_wp_idx].pose.pose.position)
+              wp_speed = 0.
+              if distance_wp_tl < DISTANCE_SECURITY_ZERO_SPEED:
+                wp_speed = 0.
+              elif distance_wp_tl < DISTANCE_SECURITY_ONE_SPEED:
+                wp_speed = 1.
+              else :
+                #we must done one step already
+                assert(prev_wp_idx != current_wp_idx)
+                wp_time = math.sqrt(2. * distance_wp_tl / dec)
+                wp_speed = min( (1. + wp_time * dec)\
+                                , self.c_max_velocity)
+              self.set_waypoint_velocity(all_wp, current_wp_idx, wp_speed)
+              prev_wp_idx = current_wp_idx
+              #iterate from the traffic light back to current car position
+              current_wp_idx = self.prev_waypoint(current_wp_idx)
+        elif (self.traffic_wp_idx == -1):
+          #restore the original speed
+          if 0 != len(self.waypoints_with_reduced_velocity):
+            for entry in self.waypoints_with_reduced_velocity:
+              self.set_waypoint_velocity(all_wp, entry[0], entry[1])
+            self.waypoints_with_reduced_velocity = []
+            #send an update
+            self.filter_and_send_waypoints()
+            
         return
 
     def get_waypoint_velocity(self, waypoint):
@@ -231,15 +285,32 @@ class WaypointUpdater(object):
 
     def set_waypoint_velocity(self, waypoints, wp_idx, velocity):
         waypoints[wp_idx].twist.twist.linear.x = velocity
+        pass
+        
+    def next_waypoint(self, wp_idx):
+      if self.waypoints_ref is not None:
+        return (wp_idx+1) % len(self.waypoints_ref.waypoints)
+      return wp_idx
+    def prev_waypoint(self, wp_idx):
+      if self.waypoints_ref is not None:
+        return (wp_idx-1) % len(self.waypoints_ref.waypoints)
+      return wp_idx
 
     def dist_3d(self, a, b):
         return math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2  + (a.z-b.z)**2)
 
     def distance(self, wp_idx_first, wp_idx_last):
         dist = 0
-        for i in range(wp_idx_first, wp_idx_last):
-            idx = i % len(self.waypoints_ref.waypoints)
-            next_idx = (i+1) % len(self.waypoints_ref.waypoints)
+        wp_idx_distance = 0
+        #consider overflows in waypoint list as well
+        all_wp_length = len(self.waypoints_ref.waypoints)
+        if(wp_idx_first < wp_idx_last):
+          wp_idx_distance = wp_idx_last-wp_idx_first
+        else:
+          wp_idx_distance = all_wp_length - wp_idx_first + wp_idx_last
+        for i in range(wp_idx_first, (wp_idx_first+wp_idx_distance)):
+            idx = i % all_wp_length
+            next_idx = (idx + 1) % all_wp_length
             dist += self.dist_3d(self.waypoints_ref.waypoints[idx].pose.pose.position, self.waypoints_ref.waypoints[next_idx].pose.pose.position)
         return dist
 

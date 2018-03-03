@@ -18,7 +18,7 @@ STATE_COUNT_THRESHOLD = 3
 
 class TLDetector(object):
     def __init__(self):
-        rospy.init_node('tl_detector', log_level=rospy.WARN)
+        rospy.init_node('tl_detector')
 
         self.pose = None
         self.waypoints = None
@@ -88,8 +88,9 @@ class TLDetector(object):
     def pose_cb(self, msg):
         # Store waypoint data for later usage
         self.pose = msg
-        rospy.loginfo('TLDetector rec: pose data (%.2f, %.2f, %.2f)',
-            msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
+#         redundant information - disabled
+#         rospy.loginfo('TLDetector rec: pose data (%.2f, %.2f, %.2f)',
+#             msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
 
         # TODO begin: Remove the next block again (it is just taken in as long as no image processing is in place)
         #light_wp, state = self.process_traffic_lights()
@@ -266,11 +267,13 @@ class TLDetector(object):
                 self.cur_wp_idx = (min_idx + 1) % len(self.waypoints.waypoints)
             else:
                 self.cur_wp_idx = min_idx
-            waypoint_index = self.cur_wp_idx
-            waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
-            rospy.loginfo('TLDetector det: car waypoint idx %i: (%.2f, %.2f, %.2f)',
-                waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
-        return waypoint_index
+            if self.debugmode:
+              waypoint_index = self.cur_wp_idx
+              waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
+            
+              rospy.loginfo('TLDetector det: car waypoint idx %i: (%.2f, %.2f, %.2f)',
+                              waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
+        return self.cur_wp_idx
 
     def get_closest_waypoint(self, light_idx):
         """Identifies the closest path waypoint to the referenced light's stop line
@@ -296,11 +299,12 @@ class TLDetector(object):
                     min_idx  = idx
                 if (min_dist < 5 and cur_dist > 10 * min_dist):
                     break
-            waypoint_index = min_idx
-            waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
-            rospy.loginfo('TLDetector det: stop waypoint idx %i: (%.2f, %.2f, %.2f)',
-                waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
-        return waypoint_index
+            if self.debugmode:
+              waypoint_index = min_idx
+              waypoint_position = self.waypoints.waypoints[waypoint_index].pose.pose.position
+              rospy.loginfo('TLDetector det: stop waypoint idx %i: (%.2f, %.2f, %.2f)',
+                            waypoint_index, waypoint_position.x, waypoint_position.y, waypoint_position.z)
+        return min_idx
 
     def get_light_state(self, light):
         """Determines the current color of the traffic light
@@ -373,8 +377,9 @@ class TLDetector(object):
                         if np.linalg.matrix_rank(rotation_matrix) == 3:
                             inv_rotation_matrix = np.linalg.inv(rotation_matrix)
                             dxyz_vehicle = np.matmul(inv_rotation_matrix, [[dx_world], [dy_world], [dz_world]])
-                            rospy.loginfo('TLDetector calc: vector(car,light) = (%.2f, %.2f, %.2f)',
-                                dxyz_vehicle[0], dxyz_vehicle[1], dxyz_vehicle[2])
+                            if self.debugmode:
+                              rospy.loginfo('TLDetector calc: vector(car,light) = (%.2f, %.2f, %.2f)',
+                                            dxyz_vehicle[0], dxyz_vehicle[1], dxyz_vehicle[2])
                             # check if traffic light is visible from vehicle
                             dy_veh_scaled = dxyz_vehicle[1] / dxyz_vehicle[0]
                             dz_veh_scaled = dxyz_vehicle[2] / dxyz_vehicle[0]
@@ -385,28 +390,33 @@ class TLDetector(object):
                             cropped_y_from = cropped_y_center - (cropped_edge_len/2)
                             cropped_x_to   = cropped_x_from   + cropped_edge_len
                             cropped_y_to   = cropped_y_from   + cropped_edge_len
-                            rospy.loginfo('TLDetector calc: image bbox(light) = [(%i, %i), (%i, %i)]',
-                                cropped_x_from, cropped_y_from, cropped_x_to, cropped_y_to)
+                            if self.debugmode:
+                              rospy.loginfo('TLDetector calc: image bbox(light) = [(%i, %i), (%i, %i)]',
+                                            cropped_x_from, cropped_y_from, cropped_x_to, cropped_y_to)
                             if ( (cropped_x_to - cropped_x_from >= 32) and
                                  (cropped_x_from >= 0) and (cropped_x_to < self.camera_image.width) and
                                  (cropped_y_from >= 0) and (cropped_y_to < self.camera_image.height) ):
                                 light_idx = tli
-                                light_pos = self.lights[tli].pose.pose.position
-                                rospy.loginfo('TLDetector det: light idx %i as visible: (%.2f, %.2f, %.2f)',
-                                    tli, light_pos.x, light_pos.y, light_pos.z)
+                                if self.debugmode:
+                                  light_pos = self.lights[tli].pose.pose.position
+                                  rospy.loginfo('TLDetector det: light idx %i as visible: (%.2f, %.2f, %.2f)',
+                                                tli, light_pos.x, light_pos.y, light_pos.z)
                                 # convert image to cv2 format
                                 cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
                                 cv2_rgb = cv2_rgb[cropped_y_from:cropped_y_to, cropped_x_from:cropped_x_to]
                                 state = self.light_classifier.get_classification(cv2_rgb) 
-                                if (state != self.lights[light_idx].state):
-                                    rospy.logwarn("TLDetector misdetection expected {0} got {1} - total of {2} misclassifications"
-                                                  .format(self.lights[light_idx].state, state, self.misclassification_counter+1))
+                                if (state != self.lights[tli].state):
+                                    colorValue = [ "red", "yellow", "green"]
+                                    rospy.logwarn("TLDetector misdetection of light {0} expected {1} got {2} - "\
+                                                  "total of {3} misclassifications"
+                                                  .format(tli, colorValue[self.lights[light_idx].state],\
+                                                          colorValue[ state], self.misclassification_counter+1))
                                     colorVal = ['red', 'yellow', 'green']
                                     filename = "./misclassified/mismatch_{0}{1}.jpg".\
                                       format(colorVal[self.lights[light_idx].state], self.misclassification_counter)
                                     self.misclassification_counter+=1
                                     if self.debugmode:
-                                        cv2.imwrite(filename, cv2_rgb)
+                                        cv2.imwrite(filename, cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR))
                                 # write some output for training the classifier
                                 if (self.next_image_idx != None):
                                     # complete image (for reference)
@@ -424,11 +434,13 @@ class TLDetector(object):
                                     self.next_image_idx = self.next_image_idx + 1
                             else:
                                 light_pos = self.lights[tli].pose.pose.position
-                                rospy.loginfo('TLDetector det: light idx %i as invisble: (%.2f, %.2f, %.2f)',
-                                    tli, light_pos.x, light_pos.y, light_pos.z)
+                                if self.debugmode:
+                                  rospy.loginfo('TLDetector det: light idx %i as invisble: (%.2f, %.2f, %.2f)',
+                                                tli, light_pos.x, light_pos.y, light_pos.z)
                         break
                 if (found_light):
-                    break
+                  #early exit in case that we've detected a light
+                  break
 
         if (light_idx != None):
             light_wp = self.get_closest_waypoint(light_idx)
