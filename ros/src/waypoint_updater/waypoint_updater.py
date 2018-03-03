@@ -47,7 +47,6 @@ class WaypointUpdater(object):
         # Add other member variables
         self.waypoints_ref = None
         self.cur_wp_ref_idx = 0
-        self.waypoints_out = None
         
         self.traffic_wp_idx = -1
         self.waypoints_with_reduced_velocity = []
@@ -82,7 +81,9 @@ class WaypointUpdater(object):
     def pose_cb(self, msg):
         if self.waypoints_ref == None:
             # Log warning of incoming data
-            rospy.logwarn('WaypointUpdater received pose data but reference waypoints are not initialized yet')
+            #avoid dump otherwise we'll be flooded in site/launch
+#             rospy.logwarn('WaypointUpdater received pose data but reference waypoints are not initialized yet')
+            pass
         else:
             # Log status of incoming data
             rospy.loginfo('WaypointUpdater rec: pose data (%.2f, %.2f, %.2f)', msg.pose.position.x, msg.pose.position.y, msg.pose.position.z)
@@ -128,6 +129,8 @@ class WaypointUpdater(object):
     #Copy the waypoints from the current car waypoints up to 
     #LOOKAHEAD_WPS waypoints in total and send them out  
     def filter_and_send_waypoints(self):
+      if None == self.waypoints_ref:
+        return
       rWaypoints = Lane()
       pos = self.cur_wp_ref_idx
       wp = self.waypoints_ref.waypoints
@@ -214,7 +217,8 @@ class WaypointUpdater(object):
         
     def calc_waypoints_out(self):
 #         # Calculate the unconstrained case (no traffic light / obstacle)
-            
+        if None == self.waypoints_ref:
+          return    
         #TODO: move to the constant section
         DISTANCE_SECURITY_ZERO_SPEED = 2.
         DISTANCE_SECURITY_ONE_SPEED = 3.
@@ -300,6 +304,8 @@ class WaypointUpdater(object):
         return math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2  + (a.z-b.z)**2)
 
     def distance(self, wp_idx_first, wp_idx_last):
+        if None == self.waypoints_ref:
+          return 0    
         dist = 0
         wp_idx_distance = 0
         #consider overflows in waypoint list as well

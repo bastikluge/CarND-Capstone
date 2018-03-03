@@ -36,6 +36,21 @@ class TLDetector(object):
         simulator. When testing on the vehicle, the color state will not be available. You'll need to
         rely on the position of the light and the camera image to predict it.
         '''
+      
+        #initialize before callback is called
+        self.state = TrafficLight.UNKNOWN
+        self.last_state = TrafficLight.UNKNOWN
+        self.last_wp = -1
+        self.state_count = 0
+        self.bridge = CvBridge()
+        self.light_classifier = TLClassifier()
+        self.listener = tf.TransformListener()
+
+#         self.next_image_idx = 845
+        self.next_image_idx = None
+        self.misclassification_counter = 0 #counts the number of false classifications
+        self.debugmode = False #set to true to store the misclassified images
+      
         sub3 = rospy.Subscriber('/vehicle/traffic_lights', TrafficLightArray, self.traffic_cb)
         sub6 = rospy.Subscriber('/image_color', Image, self.image_cb)
 
@@ -44,19 +59,6 @@ class TLDetector(object):
 
         self.upcoming_red_light_pub = rospy.Publisher('/traffic_waypoint', Int32, queue_size=1)
 
-        self.bridge = CvBridge()
-        self.light_classifier = TLClassifier()
-        self.listener = tf.TransformListener()
-
-        self.state = TrafficLight.UNKNOWN
-        self.last_state = TrafficLight.UNKNOWN
-        self.last_wp = -1
-        self.state_count = 0
-
-#         self.next_image_idx = 845
-        self.next_image_idx = None
-        self.misclassification_counter = 0 #counts the number of false classifications
-        self.debugmode = False #set to true to store the misclassified images
 
         rospy.spin()
 
@@ -396,6 +398,7 @@ class TLDetector(object):
                             if ( (cropped_x_to - cropped_x_from >= 32) and
                                  (cropped_x_from >= 0) and (cropped_x_to < self.camera_image.width) and
                                  (cropped_y_from >= 0) and (cropped_y_to < self.camera_image.height) ):
+                                
                                 light_idx = tli
                                 if self.debugmode:
                                   light_pos = self.lights[tli].pose.pose.position
@@ -406,14 +409,13 @@ class TLDetector(object):
                                 cv2_rgb = cv2_rgb[cropped_y_from:cropped_y_to, cropped_x_from:cropped_x_to]
                                 state = self.light_classifier.get_classification(cv2_rgb) 
                                 if (state != self.lights[tli].state):
-                                    colorValue = [ "red", "yellow", "green"]
+                                    colorValue = [ "red", "yellow", "green", "", "unknown"]
                                     rospy.logwarn("TLDetector misdetection of light {0} expected {1} got {2} - "\
                                                   "total of {3} misclassifications"
                                                   .format(tli, colorValue[self.lights[light_idx].state],\
                                                           colorValue[ state], self.misclassification_counter+1))
-                                    colorVal = ['red', 'yellow', 'green']
                                     filename = "./misclassified/mismatch_{0}{1}.jpg".\
-                                      format(colorVal[self.lights[light_idx].state], self.misclassification_counter)
+                                      format(colorValue[self.lights[light_idx].state], self.misclassification_counter)
                                     self.misclassification_counter+=1
                                     if self.debugmode:
                                         cv2.imwrite(filename, cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR))
