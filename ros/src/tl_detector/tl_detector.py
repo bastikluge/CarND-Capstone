@@ -209,6 +209,9 @@ class TLDetector(object):
         """
         self.has_image = True
         self.camera_image = msg
+        #initialize the values
+        ligth_wp = self.last_wp
+        state = self.state
         light_wp, state = self.process_traffic_lights()
 
         '''

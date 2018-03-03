@@ -40,6 +40,9 @@ class WaypointUpdater(object):
         rospy.Subscriber('/obstacle_waypoint', Int32, self.obstacle_cb)
 
         self.final_waypoints_pub = rospy.Publisher('/final_waypoints', Lane, queue_size=1)
+        
+        #store the max velocity, already converted from km/h to m/s
+        self.c_max_velocity = rospy.get_param('waypoint_loader/velocirty', 40.) / 3.6
 
         # Add other member variables
         self.waypoints_ref = None
@@ -85,6 +88,9 @@ class WaypointUpdater(object):
             # Calculate cur_wp_ref_idx
             min_dist = 100000.0
             min_idx  = self.cur_wp_ref_idx
+            #remember the waypoint we've send out before to avoid
+            #unnecessary updates
+            prev_Last_wp_index = self.cur_wp_ref_idx
             start_idx = self.cur_wp_ref_idx - 2
             if (start_idx < 0):
                 start_idx = start_idx + len(self.waypoints_ref.waypoints)
@@ -107,7 +113,9 @@ class WaypointUpdater(object):
             else:
                 self.cur_wp_ref_idx = min_idx
             # Calculate self.waypoints_out
-            self.calc_waypoints_out()
+            #ONLY if the waypoint really has changed
+            if prev_Last_wp_index != self.cur_wp_ref_idx:
+              self.calc_waypoints_out()
             # Publish the data
             waypoint_pos = self.waypoints_out.waypoints[0].pose.pose.position
             waypoint_speed = self.waypoints_out.waypoints[0].twist.twist.linear.x
@@ -184,7 +192,8 @@ class WaypointUpdater(object):
         self.waypoints_out = Lane(self.waypoints_ref.header, [])
         for i in range(self.cur_wp_ref_idx, self.cur_wp_ref_idx + LOOKAHEAD_WPS):
             idx = i % len(self.waypoints_ref.waypoints)
-            self.waypoints_ref.waypoints[idx].twist.twist.linear.x = 10.0
+            #always run with full velocity
+            self.waypoints_ref.waypoints[idx].twist.twist.linear.x = self.c_max_velocity
             self.waypoints_out.waypoints.append(self.waypoints_ref.waypoints[idx])
         # Consider traffic
         if (self.traffic_wp_idx != -1):
@@ -202,7 +211,7 @@ class WaypointUpdater(object):
                 light_dist = self.distance(self.cur_wp_ref_idx, self.traffic_wp_idx)
                 if (light_dist < dec_dist):
                     dec = 0.5 * cur_speed * cur_speed / dec_dist
-#                     rospy.logwarn('WaypointUpdater needs to plan uncomfortable deceleration %.2f m/s^2', dec)
+                    rospy.logwarn('WaypointUpdater needs to plan uncomfortable deceleration %.2f m/s^2', dec)
                 else:
                     rospy.loginfo('WaypointUpdater plans comfortable deceleration %.2f m/s^2', dec)
                 # Adjust speed
