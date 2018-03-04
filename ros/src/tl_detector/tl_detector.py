@@ -46,7 +46,7 @@ class TLDetector(object):
         self.light_classifier = TLClassifier()
         self.listener = tf.TransformListener()
 
-#         self.next_image_idx = 845
+        #self.next_image_idx = 2000
         self.next_image_idx = None
         self.misclassification_counter = 0 #counts the number of false classifications
         self.debugmode = False #set to true to store the misclassified images
@@ -385,9 +385,14 @@ class TLDetector(object):
                             # check if traffic light is visible from vehicle
                             dy_veh_scaled = dxyz_vehicle[1] / dxyz_vehicle[0]
                             dz_veh_scaled = dxyz_vehicle[2] / dxyz_vehicle[0]
-                            cropped_edge_len = int(round(8000.0 / dxyz_vehicle[0]))
-                            cropped_x_center = int(round(-2644.0 * dy_veh_scaled + 366.4))
-                            cropped_y_center = int(round(-2137.0 * dz_veh_scaled + 613.9))
+                            a_e =    10.0 * self.camera_image.width
+                            a_x = -2644.0 * (self.camera_image.width / 800.0)
+                            b_x =   366.4 * (self.camera_image.width / 800.0)
+                            a_y = -2137.0 * (self.camera_image.height / 600.0)
+                            b_y =   613.9 * (self.camera_image.height / 600.0)
+                            cropped_edge_len = int(round(a_e / dxyz_vehicle[0]))
+                            cropped_x_center = int(round(a_x * dy_veh_scaled + b_x))
+                            cropped_y_center = int(round(a_y * dz_veh_scaled + b_y))
                             cropped_x_from = cropped_x_center - (cropped_edge_len/2)
                             cropped_y_from = cropped_y_center - (cropped_edge_len/2)
                             cropped_x_to   = cropped_x_from   + cropped_edge_len
@@ -406,6 +411,17 @@ class TLDetector(object):
                                                 tli, light_pos.x, light_pos.y, light_pos.z)
                                 # convert image to cv2 format
                                 cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
+                                ## store complete image (for reference)
+                                #if (self.next_image_idx != None):
+                                #    if (self.next_image_idx % 10 == 0):
+                                #        filename = './traffic_light_images/traffic_light_' + str(self.next_image_idx) + '.png'
+                                #        cv2.line(cv2_rgb, (self.camera_image.width/2, self.camera_image.height), (cropped_x_center, cropped_y_center), (0, 0, 255), 3)
+                                #        cv2.imwrite(filename, cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR))
+                                #        with open('./traffic_light_images/params.csv','a') as file:
+                                #            file.write(str(self.next_image_idx) + ','
+                                #                + str(dxyz_vehicle[0][0]) + ',' + str(dxyz_vehicle[1][0]) + ',' + str(dxyz_vehicle[2][0]) + ','
+                                #                + str(self.lights[tli].state) + '\n')
+                                # crop and classify image
                                 cv2_rgb = cv2_rgb[cropped_y_from:cropped_y_to, cropped_x_from:cropped_x_to]
                                 state = self.light_classifier.get_classification(cv2_rgb) 
                                 if (state != self.lights[tli].state):
@@ -421,13 +437,6 @@ class TLDetector(object):
                                         cv2.imwrite(filename, cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR))
                                 # write some output for training the classifier
                                 if (self.next_image_idx != None):
-                                    # complete image (for reference)
-                                    #filename = './traffic_light_images/traffic_light_' + str(self.next_image_idx) + '.png'
-                                    #cv2.imwrite(filename, cv2_bgr)
-                                    #with open('./traffic_light_images/params.csv','a') as file:
-                                    #    file.write(str(self.next_image_idx) + ','
-                                    #        + str(dxyz_vehicle[0][0]) + ',' + str(dxyz_vehicle[1][0]) + ',' + str(dxyz_vehicle[2][0]) + ','
-                                    #        + str(self.lights[tli].state) + '\n')
                                     # cropped image (for training and/or classification)
                                     filename = './traffic_light_images/traffic_light_cropped' + str(self.next_image_idx) + '.png'
                                     cv2.imwrite(filename, cv2.resize(cv2_rgb, (32, 32)))
