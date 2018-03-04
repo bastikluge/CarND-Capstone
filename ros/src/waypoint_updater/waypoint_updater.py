@@ -32,18 +32,18 @@ class WaypointUpdater(object):
     def __init__(self):
         rospy.init_node('waypoint_updater')
 
+        # Store the max velocity, already converted from km/h to m/s
+        self.c_max_velocity = rospy.get_param('waypoint_loader/velocity', 40.) / 3.6
+
+        # Subscribe to required topics
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
-
-        # Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
         rospy.Subscriber('/traffic_waypoint', Int32, self.traffic_cb)
         rospy.Subscriber('/obstacle_waypoint', Int32, self.obstacle_cb)
 
+        # Set up publisher for final waypoints
         self.final_waypoints_pub = rospy.Publisher('/final_waypoints', Lane, queue_size=1)
         
-        #store the max velocity, already converted from km/h to m/s
-        self.c_max_velocity = rospy.get_param('waypoint_loader/velocirty', 40.) / 3.6
-
         # Add other member variables
         self.waypoints_ref = None
         self.cur_wp_ref_idx = 0
