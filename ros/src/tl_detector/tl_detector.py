@@ -422,7 +422,6 @@ class TLDetector(object):
                                 if (self.next_image_idx != None):
                                     #dump the tenth picture
                                     if (self.internal_counter % 10 == 0):
-                                        print ("WRITING")
                                         filename = '{0}traffic_light_{1}.png'.format(IMAGE_DUMP_FOLDER, self.next_image_idx)
                                         cv2.line(cv2_rgb, (self.camera_image.width/2, self.camera_image.height),
                                             (cropped_x_center, cropped_y_center), (0, 0, 255), 3)
