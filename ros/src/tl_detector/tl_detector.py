@@ -13,8 +13,11 @@ import yaml
 import math
 from tf.transformations import euler_from_quaternion
 import numpy as np
+import os
+import re
 
 STATE_COUNT_THRESHOLD = 3
+IMAGE_DUMP_FOLDER = "./traffic_light_images/"
 
 class TLDetector(object):
     def __init__(self):
@@ -46,10 +49,24 @@ class TLDetector(object):
         self.light_classifier = TLClassifier()
         self.listener = tf.TransformListener()
 
-        #self.next_image_idx = 2000
+        #Do not set a value here - this will be identified automatically
         self.next_image_idx = None
+              
+              
+        self.internal_counter = 0#used to count for debugging purpose
         self.misclassification_counter = 0 #counts the number of false classifications
+        #CAUTION: The next flag will write images to HDD and will increase
+        #         the traceoutput.
+        #         enable only if you know what you're doing 
         self.debugmode = False #set to true to store the misclassified images
+        if self.debugmode:
+          self.next_image_idx = 0
+          for root, dirs, files in os.walk(IMAGE_DUMP_FOLDER):
+            for file in files:
+              if file.endswith(".png"):
+                num = int(re.search(r'\d+', os.path.join(root, file)).group(0))
+                self.next_image_idx = num if num > self.next_image_idx else self.next_image_idx
+          self.next_image_idx += 1
       
         sub3 = rospy.Subscriber('/vehicle/traffic_lights', TrafficLightArray, self.traffic_cb)
         sub6 = rospy.Subscriber('/image_color', Image, self.image_cb)
@@ -397,20 +414,25 @@ class TLDetector(object):
                             cropped_y_from = cropped_y_center - (cropped_edge_len/2)
                             cropped_x_to   = cropped_x_from   + cropped_edge_len
                             cropped_y_to   = cropped_y_from   + cropped_edge_len
+                            cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
                             if self.debugmode:
                                 rospy.loginfo('TLDetector calc: image bbox(light) = [(%i, %i), (%i, %i)]',
                                     cropped_x_from, cropped_y_from, cropped_x_to, cropped_y_to)
                                 # store complete image (for reference)
                                 if (self.next_image_idx != None):
-                                    if (self.next_image_idx % 10 == 0):
-                                        filename = './traffic_light_images/traffic_light_' + str(self.next_image_idx) + '.png'
+                                    #dump the tenth picture
+                                    if (self.internal_counter % 10 == 0):
+                                        print ("WRITING")
+                                        filename = '{0}traffic_light_{1}.png'.format(IMAGE_DUMP_FOLDER, self.next_image_idx)
                                         cv2.line(cv2_rgb, (self.camera_image.width/2, self.camera_image.height),
                                             (cropped_x_center, cropped_y_center), (0, 0, 255), 3)
                                         cv2.imwrite(filename, cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR))
-                                        with open('./traffic_light_images/params.csv','a') as file:
+                                        with open('{0}params.csv'.format(IMAGE_DUMP_FOLDER),'a') as file:
                                             file.write(str(self.next_image_idx) + ','
                                                 + str(dxyz_vehicle[0][0]) + ',' + str(dxyz_vehicle[1][0]) + ','
                                                 + str(dxyz_vehicle[2][0]) + ',' + str(self.lights[tli].state) + '\n')
+                                        self.next_image_idx += 1
+                                    
                             if ( (cropped_x_to - cropped_x_from >= 32) and
                                  (cropped_x_from >= 0) and (cropped_x_to < self.camera_image.width) and
                                  (cropped_y_from >= 0) and (cropped_y_to < self.camera_image.height) ):
@@ -421,7 +443,6 @@ class TLDetector(object):
                                   rospy.loginfo('TLDetector det: light idx %i as visible: (%.2f, %.2f, %.2f)',
                                                 tli, light_pos.x, light_pos.y, light_pos.z)
                                 # convert image to cv2 format, crop and classify
-                                cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
                                 cv2_rgb = cv2_rgb[cropped_y_from:cropped_y_to, cropped_x_from:cropped_x_to]
                                 state = self.light_classifier.get_classification(cv2_rgb) 
                                 if (state != self.lights[tli].state):
@@ -438,9 +459,9 @@ class TLDetector(object):
                                 # write some output for training the classifier
                                 if (self.next_image_idx != None):
                                     # cropped image (for training and/or classification)
-                                    filename = './traffic_light_images/traffic_light_cropped' + str(self.next_image_idx) + '.png'
+                                    filename = '{0}traffic_light_cropped{1}.png'.format(IMAGE_DUMP_FOLDER, self.next_image_idx) + '.png'
                                     cv2.imwrite(filename, cv2.resize(cv2_rgb, (32, 32)))
-                                    with open('./traffic_light_images/light_state.csv','a') as file:
+                                    with open('{0}light_state.csv'.format(IMAGE_DUMP_FOLDER),'a') as file:
                                         file.write(str(self.next_image_idx) + ',' + str(self.lights[tli].state) + '\n')
                                     self.next_image_idx = self.next_image_idx + 1
                             else:
