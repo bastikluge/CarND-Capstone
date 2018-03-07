@@ -40,7 +40,7 @@ class TLDetector(object):
         rely on the position of the light and the camera image to predict it.
         '''
       
-        #initialize before callback is called
+        # Initialize before callback is called
         self.state = TrafficLight.UNKNOWN
         self.last_state = TrafficLight.UNKNOWN
         self.last_wp = -1
@@ -48,6 +48,34 @@ class TLDetector(object):
         self.bridge = CvBridge()
         self.light_classifier = TLClassifier()
         self.listener = tf.TransformListener()
+
+        # Load configuration
+        config_string = rospy.get_param("/traffic_light_config")
+        self.config = yaml.load(config_string)
+
+        # Initialization of a bunch of camera-related parameters
+        self.camera_z = 1.0
+        self.image_width  = self.config['camera_info']['image_width']
+        self.image_height = self.config['camera_info']['image_height']
+        self.image_scale = 8000
+        if ('image_scale' in self.config['camera_info']):
+            self.image_scale = self.config['camera_info']['image_scale']
+        self.camera_f_x = 2646
+        if ('focal_length_x' in self.config['camera_info']):
+            self.camera_f_x = self.config['camera_info']['focal_length_x']
+        self.camera_f_y = 2647
+        if ('focal_length_y' in self.config['camera_info']):
+            self.camera_f_y = self.config['camera_info']['focal_length_y']
+        self.camera_c_x = 366
+        if ('focal_center_x' in self.config['camera_info']):
+            self.camera_c_x = self.config['camera_info']['focal_center_x']
+        else:
+            self.camera_c_x = self.image_width / 2
+        self.camera_c_y = 614
+        if ('focal_center_y' in self.config['camera_info']):
+            self.camera_c_y = self.config['camera_info']['focal_center_y']
+        else:
+            self.camera_c_y = self.image_height / 2
 
         #Do not set a value here - this will be identified automatically
         self.next_image_idx = None
@@ -58,7 +86,7 @@ class TLDetector(object):
         #CAUTION: The next flag will write images to HDD and will increase
         #         the traceoutput.
         #         enable only if you know what you're doing 
-        self.debugmode = False #set to true to store the misclassified images
+        self.debugmode = True #set to true to store the misclassified images
         if self.debugmode:
           self.next_image_idx = 0
           for root, dirs, files in os.walk(IMAGE_DUMP_FOLDER):
@@ -71,11 +99,7 @@ class TLDetector(object):
         sub3 = rospy.Subscriber('/vehicle/traffic_lights', TrafficLightArray, self.traffic_cb)
         sub6 = rospy.Subscriber('/image_color', Image, self.image_cb)
 
-        config_string = rospy.get_param("/traffic_light_config")
-        self.config = yaml.load(config_string)
-
         self.upcoming_red_light_pub = rospy.Publisher('/traffic_waypoint', Int32, queue_size=1)
-
 
         rospy.spin()
 
@@ -379,10 +403,13 @@ class TLDetector(object):
                         found_light = True
                         # calculate vector from vehicle to traffic light in vehicle coordinate system
                         pose_light_dist = self.dist_3d(self.lights[tli].pose.pose.position, self.pose.pose.position)
-                        dx_world = self.lights[tli].pose.pose.position.x - self.pose.pose.position.x
-                        dy_world = self.lights[tli].pose.pose.position.y - self.pose.pose.position.y
-                        dz_world = self.lights[tli].pose.pose.position.z - self.pose.pose.position.z
+                        light_position = self.lights[tli].pose.pose.position
+                        dx_world = light_position.x - self.pose.pose.position.x
+                        dy_world = light_position.y - self.pose.pose.position.y
+                        dz_world = light_position.z - (self.pose.pose.position.z + self.camera_z)
                         (roll, pitch, yaw) = self.get_roll_pitch_yaw(self.pose.pose.orientation)
+                        roll = 0.0  # value seems to be unreliable in bag file
+                        pitch = 0.0 # value seems to be unreliable in bag file
                         s_y = math.sin(yaw)
                         c_y = math.cos(yaw)
                         s_p = math.sin(pitch)
@@ -395,27 +422,26 @@ class TLDetector(object):
                             [    -s_p,     c_p*s_r,               c_p*c_r]]
                         if np.linalg.matrix_rank(rotation_matrix) == 3:
                             inv_rotation_matrix = np.linalg.inv(rotation_matrix)
-                            dxyz_vehicle = np.matmul(inv_rotation_matrix, [[dx_world], [dy_world], [dz_world]])
+                            tmp = np.matmul(inv_rotation_matrix, [[dx_world], [dy_world], [dz_world]])
+                            dx_camera = -tmp[1][0]
+                            dy_camera = -tmp[2][0]
+                            dz_camera =  tmp[0][0]
                             if self.debugmode:
-                              rospy.loginfo('TLDetector calc: vector(car,light) = (%.2f, %.2f, %.2f)',
-                                            dxyz_vehicle[0], dxyz_vehicle[1], dxyz_vehicle[2])
+                              rospy.loginfo('TLDetector calc: dxyz_w (%.1f, %.1f, %.1f), dxyz_c (%.1f, %.1f, %.1f)',
+                                            dx_world, dy_world, dz_world, dx_camera, dy_camera, dz_camera)
                             # check if traffic light is visible from vehicle
-                            dy_veh_scaled = dxyz_vehicle[1] / dxyz_vehicle[0]
-                            dz_veh_scaled = dxyz_vehicle[2] / dxyz_vehicle[0]
-                            a_e =    10.0 * self.camera_image.width
-                            a_x = -2644.0 * (self.camera_image.width / 800.0)
-                            b_x =   366.4 * (self.camera_image.width / 800.0)
-                            a_y = -2137.0 * (self.camera_image.height / 600.0)
-                            b_y =   613.9 * (self.camera_image.height / 600.0)
-                            cropped_edge_len = int(round(a_e / dxyz_vehicle[0]))
-                            cropped_x_center = int(round(a_x * dy_veh_scaled + b_x))
-                            cropped_y_center = int(round(a_y * dz_veh_scaled + b_y))
+                            cropped_edge_len = int(round(self.image_scale / dz_camera))
+                            cropped_x_center = int(round(self.camera_f_x * (dx_camera / dz_camera) + self.camera_c_x))
+                            cropped_y_center = int(round(self.camera_f_y * (dy_camera / dz_camera) + self.camera_c_y))
                             cropped_x_from = cropped_x_center - (cropped_edge_len/2)
                             cropped_y_from = cropped_y_center - (cropped_edge_len/2)
                             cropped_x_to   = cropped_x_from   + cropped_edge_len
                             cropped_y_to   = cropped_y_from   + cropped_edge_len
-                            cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
                             if self.debugmode:
+                                cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
+                                if ( (self.image_width != self.camera_image.width) or
+                                     (self.image_height != self.camera_image.height) ):
+                                    cv2_rgb = cv2.resize(cv2_rgb, (self.image_width, self.image_height))
                                 rospy.loginfo('TLDetector calc: image bbox(light) = [(%i, %i), (%i, %i)]',
                                     cropped_x_from, cropped_y_from, cropped_x_to, cropped_y_to)
                                 # store complete image (for reference)
@@ -423,18 +449,18 @@ class TLDetector(object):
                                     #dump the tenth picture
                                     if (self.internal_counter % 10 == 0):
                                         filename = '{0}traffic_light_{1}.png'.format(IMAGE_DUMP_FOLDER, self.next_image_idx)
-                                        cv2.line(cv2_rgb, (self.camera_image.width/2, self.camera_image.height),
+                                        cv2.line(cv2_rgb, (self.camera_image.width/2, self.camera_image.height/2),
                                             (cropped_x_center, cropped_y_center), (0, 0, 255), 3)
                                         cv2.imwrite(filename, cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR))
                                         with open('{0}params.csv'.format(IMAGE_DUMP_FOLDER),'a') as file:
                                             file.write(str(self.next_image_idx) + ','
-                                                + str(dxyz_vehicle[0][0]) + ',' + str(dxyz_vehicle[1][0]) + ','
-                                                + str(dxyz_vehicle[2][0]) + ',' + str(self.lights[tli].state) + '\n')
+                                                + str(dx_camera) + ',' + str(dy_camera) + ','
+                                                + str(dz_camera) + ',' + str(self.lights[tli].state) + '\n')
                                         self.next_image_idx += 1
                                     
                             if ( (cropped_x_to - cropped_x_from >= 32) and
-                                 (cropped_x_from >= 0) and (cropped_x_to < self.camera_image.width) and
-                                 (cropped_y_from >= 0) and (cropped_y_to < self.camera_image.height) ):
+                                 (cropped_x_from >= 0) and (cropped_x_to < self.image_width) and
+                                 (cropped_y_from >= 0) and (cropped_y_to < self.image_height) ):
                                 
                                 light_idx = tli
                                 if self.debugmode:
@@ -442,6 +468,10 @@ class TLDetector(object):
                                   rospy.loginfo('TLDetector det: light idx %i as visible: (%.2f, %.2f, %.2f)',
                                                 tli, light_pos.x, light_pos.y, light_pos.z)
                                 # convert image to cv2 format, crop and classify
+                                cv2_rgb = self.bridge.imgmsg_to_cv2(self.camera_image, "rgb8")
+                                if ( (self.image_width != self.camera_image.width) or
+                                     (self.image_height != self.camera_image.height) ):
+                                    cv2_rgb = cv2.resize(cv2_rgb, (self.image_width, self.image_height))
                                 cv2_rgb = cv2_rgb[cropped_y_from:cropped_y_to, cropped_x_from:cropped_x_to]
                                 state = self.light_classifier.get_classification(cv2_rgb) 
                                 if (state != self.lights[tli].state):
