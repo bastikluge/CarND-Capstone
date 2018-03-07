@@ -86,7 +86,7 @@ class TLDetector(object):
         #CAUTION: The next flag will write images to HDD and will increase
         #         the traceoutput.
         #         enable only if you know what you're doing 
-        self.debugmode = True #set to true to store the misclassified images
+        self.debugmode = False #set to true to store the misclassified images
         if self.debugmode:
           self.next_image_idx = 0
           for root, dirs, files in os.walk(IMAGE_DUMP_FOLDER):
@@ -449,7 +449,7 @@ class TLDetector(object):
                                     #dump the tenth picture
                                     if (self.internal_counter % 10 == 0):
                                         filename = '{0}traffic_light_{1}.png'.format(IMAGE_DUMP_FOLDER, self.next_image_idx)
-                                        cv2.line(cv2_rgb, (self.camera_image.width/2, self.camera_image.height/2),
+                                        cv2.line(cv2_rgb, (self.image_width/2, self.image_height/2),
                                             (cropped_x_center, cropped_y_center), (0, 0, 255), 3)
                                         cv2.imwrite(filename, cv2.cvtColor(cv2_rgb, cv2.COLOR_RGB2BGR))
                                         with open('{0}params.csv'.format(IMAGE_DUMP_FOLDER),'a') as file:
