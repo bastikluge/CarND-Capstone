@@ -1,47 +1,42 @@
-x_img.from, y_img.from, x_img.to, y_img.to, img.edge_len, x_img.light, y_img.light, x_veh,         y_veh,         z_veh,      y_veh_scaled,  z_veh_scaled
-240,        500,        300,      560,      60,           270,         534,         148.525835876, 5.41688815562, 5.55416066, 0.03647101613, 0.03739524930
-330,        0,          590,      260,      260,          438,         127,         23.9507068712,-0.648275690043,5.4565731, -0.02706707963, 0.22782513808
+img_edge_len  x_img  y_img  x_cam,          y_cam       z_cam          x_cam_scaled   y_cam_scaled
+225           413    288    0,647188062312 -4,4659781   36,2714461335  0,01784290761 -0,12312655204
+64            282    514   -3,8188576657   -4,55491578  120,601366324 -0,03166512770 -0,03776835967
+
+Camera 3d -> 2d mapping model (see https://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html):
+x_img = f_x * (x_cam / z_cam) + c_x
+y_img = f_y * (y_cam / z_cam) + c_y
 
 Solve:
 ------
-c/x_veh = img.edge_len
-c = img.edge_len * x_veh
-  =  60 * 148,525835876 = 8911,55015256
-  = 260 * 23,9507068712 = 6227,183786512
-  => use c = 8000 (to get a bigger edge_len in tendency)
-  => img.edge_len = 8000 / x_veh
+c/z_cam = img_edge_len
+c = img_edge_len * z_cam
+  =  64 * 120,601366324 = 7718,487444736
+  = 225 * 36,2714461335 = 8161,0753800375
+  => use c = 8000 (to get a bigger img_edge_len in tendency)
+  => img_edge_len = 8000 / z_cam
 
 Solve:
 ------
-a*y_veh_scaled + b = x_img.light
-a*0.03647101613  + b = 270
-a*-0.02706707963 + b = 438
-=> a*0.03647101613 + a*0.02706707963 = 270 - 438
-   a = -168 / 0.06353809576
-     = -2644.083018077531381151357312884
-=> b = 2644,083018077531381151357312884*0,03647101613 + 270
-     = 366,43239440136472859255233052959
-=> use a = -2644, b = 366.4 (sufficient accuracy)
-=> x_img.light = -2644 * y_veh_scaled + 366.4
+x_img = f_x * (x_cam / z_cam) + c_x
+f_x *  0,01784290761 + c_x = 413
+f_x * -0,03166512770 + c_x = 282
+=> f_x * (0,01784290761 + 0,03166512770) = 413 - 282
+   f_x = 131 / 0,04950803531
+       = 2646,0351169204981323667073226865
+=> c_x = 413 - 2646,0351169204981323667073226865 * 0,01784290761
+       = 365,78703987597200410900329060139
+=> use f_x = 2646, c_x = 366 (sufficient accuracy)
+=> x_img = 2646 * (x_cam / z_cam) + 366
 
 Solve:
 ------
-a*z_veh_scaled + b = y_img.light
-a*0.03739524930 + b = 534
-a*0.22782513808 + b = 127
-=> a*0.03739524930 - a*0.22782513808 = 534 - 127
-   a = -407 / 0.19042988878
-     = -2137.2695358248058311973142139646
-=> b = 2137.2695358248058311973142139646*0.03739524930 + 534
-     = 613.92372711346389518171728252164
-=> use a = -2137, b = 613.9 (sufficient accuracy)
-=> y_img.light = -2137 * z_veh_scaled + 613.9
-
-Test:
------
-x_img.from, y_img.from, x_img.to, y_img.to, img.edge_len, x_img.light, y_img.light, x_veh,         y_veh,         z_veh,      y_veh_scaled,  z_veh_scaled
-245,        365,        370,      490,      125,          305,         429,         62.0661645287, 1.56453913255, 5.54066125, 0.02520760135, 0.08927023753
-according to formula:
-	img.edge_len = 8000 / x_veh = 128.89470552511299375409700206716 		=> okay
-	x_img.light  = -2644 * y_veh_scaled + 366.4 = 299.7511020306            => okay
-	y_img.light  = -2137 * z_veh_scaled + 613.9 = 423.12950239839           => okay
+y_img = f_y * (y_cam / z_cam) + c_y
+f_y * -0,03776835967 + c_y = 514
+f_y * -0,12312655204 + c_y = 288
+=> f_y * (-0,03776835967 + 0,12312655204) = 514 - 288
+   f_y = 226 / 0,08535819237
+       = 2647,6661902628339363461616379119
+=> c_y = 514 - 2647,6661902628339363461616379119 * -0,03776835967
+       = 414,00199104005463605859628163539
+=> use f_y = 2647, c_y = 414 (sufficient accuracy)
+=> y_img = 2647 * (y_cam / z_cam) + 414
